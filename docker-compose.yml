@@ -1,0 +1,10 @@
+services:
+  kali:
+    build: .
+    container_name: kali-machine
+    tty: true
+    stdin_open: true
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+      - NET_BIND_SERVICE
