@@ -1,7 +1,7 @@
 services:
   kali:
     build: .
-    container_name: kali-machine
+    container_name: kali-linux
     tty: true
     stdin_open: true
     cap_add:

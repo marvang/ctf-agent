@@ -9,7 +9,11 @@ This project uses uv instead of pip.
 
 ### 1. Build and start the container
 
+docker compose build
 docker compose up -d
+docker compose exec kali bash
+docker compose down
+
 -d means it runs in the background.
 ## 2. Enter the Kali machine
 docker compose exec kali bash
