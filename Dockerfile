@@ -19,7 +19,12 @@ RUN apt-get update && \
         # kali-linux-headless \
         kali-linux-default \
         # kali-linux-large \
-        python3 \ python3-pip \ iputils-ping \ nmap \ net-tools \ libcap2-bin \
+        python3 \
+        python3-pip \
+        iputils-ping \
+        nmap \
+        net-tools \
+        libcap2-bin \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Default command
