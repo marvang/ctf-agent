@@ -11,6 +11,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Windows
 powershell -c "irm https://astral.sh/uv/install.sh | iex"
+# om det inte funkar, testa:
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+astral.sh
 ```
 
 ## Prerequisites
