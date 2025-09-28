@@ -48,7 +48,8 @@ uv sync
 docker compose up -d
 
 # Kör playground notebook först och testa köra alla celler
-# Se till att API KEY finns i .env
+# skapa fil som heter .env
+# Lägg till API KEY i .env
 # Vi kör GROQ_API_KEY men ska byta till OpenRouter med vår 100$ credit från hackathonet.
 
 # Kör main.py (semi-automatiserad, kör ett kommando och stänger ner)
