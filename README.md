@@ -4,7 +4,14 @@ Två delar för att komma igång:
 1. **Kali Linux container** via Docker  
 2. **CTF Agent** som föreslår kommandon som sedan körs (med human approval)  
 
-Dependencies via **uv** istället för pip.
+Dependencies via **uv** istället för pip. Skaffa uv, det är bättre, fråga chatgpt varför.
+```bash
+# Linux/macOS
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows
+powershell -c "irm https://astral.sh/uv/install.sh | iex"
+```
 
 ## Prerequisites
 - [Docker](https://docs.docker.com/get-docker/) Desktop  
