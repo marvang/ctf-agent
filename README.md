@@ -23,7 +23,7 @@ docker compose up -d
 
 # Gå in i Kali från terminalen
 docker compose exec kali bash
-# Exempel: ls, pwd, whoami, nmap localhost
+# Testa köra kommandon: ls, pwd, whoami, nmap localhost
 
 # Avsluta
 exit
@@ -40,7 +40,7 @@ uv sync
 # Starta container om inte redan igång
 docker compose up -d
 
-# Kör playground notebook först och testa alla celler
+# Kör playground notebook först och testa köra alla celler
 # Se till att API KEY finns i .env
 # Vi kör GROQ_API_KEY men ska byta till OpenRouter med vår 100$ credit från hackathonet.
 
