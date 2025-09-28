@@ -1,93 +1,76 @@
-# Kali Machine with Docker Compose + CTF Agent
+# CTF Agent v1.0
 
-This project provides two main components:
+Två delar för att komma igång:  
+1. **Kali Linux container** via Docker  
+2. **CTF Agent** som föreslår kommandon som sedan körs (med human approval)  
 
-1. **Kali Linux container** via Docker Compose.  
-2. **CTF Agent** that uses LLM reasoning to propose and execute commands (with human approval).  
-
-Dependencies are managed with **uv** instead of pip.
-
----
+Dependencies via **uv** istället för pip.
 
 ## Prerequisites
-- [Docker](https://docs.docker.com/get-docker/) installed.  
-- [uv](https://github.com/astral-sh/uv) installed.  
-- API keys:
-  - **GROQ_API_KEY** (free, for fast/cheap inference).  
-  - **OpenRouter API key** (for GPT-5 and other larger models).  
+- [Docker](https://docs.docker.com/get-docker/) Desktop  
+- [uv](https://github.com/astral-sh/uv)  
+- **GROQ_API_KEY** (gratis, snabb inference)  
+- **OpenRouter API key** (för GPT-5 Claude och Gemini, ej implementerat än)  
 
----
-
-# Quick Start: Kali Container
-
-### 1. Build and start
+## Quick Start: Kali
+I terminalen gå till ctf-agent mappen och kör följande.
 ```bash
+# Bygg image (Tar lång tid, bra internet behövs)
 docker compose build
+# Kolla docker desktop appen, du ska se en ctf-agent image.
+# Starta container (i bakgrunden)
 docker compose up -d
-```
 
-### 2. Enter Kali
-```bash
+# Gå in i Kali från terminalen
 docker compose exec kali bash
-```
+# Exempel: ls, pwd, whoami, nmap localhost
 
-### 3. Exit
-```bash
+# Avsluta
 exit
-```
-
-### 4. Stop container
-```bash
+# kör docker ps för att se aktiva containers.
+# Stoppa container
 docker compose down
 ```
 
----
-
-# Quick Start: CTF Agent
-
-### 1. Install dependencies
+## Quick Start: Agent
 ```bash
+# Installera dependencies
 uv sync
-```
 
-### 2. Configure environment variables
-```bash
-cp .env.example .env
-# Edit .env and add your GROQ_API_KEY
-```
-
-### 3. Ensure Kali container is running
-```bash
+# Starta container om inte redan igång
 docker compose up -d
-```
 
-### 4. Run the agent
-```bash
+# Kör playground notebook först och testa alla celler
+# Se till att API KEY finns i .env
+# Vi kör GROQ_API_KEY men ska byta till OpenRouter med vår 100$ credit från hackathonet.
+
+# Kör main.py (semi-automatiserad, kör ett kommando och stänger ner)
 python main.py
 ```
 
-The agent will:
-1. Use LLM to reason about the environment.  
-2. Generate a shell command.  
-3. Ask for your approval (`yes/no`).  
-4. If approved, execute inside the Kali container and display the output.  
-
----
+### Vad main.py gör
+1. Använder LLM för att generera kommando  
+2. Frågar efter ditt godkännande (`yes/no`)  
+3. Kör i Kali-containern om godkänt och visar output  
 
 ## Features
-- Loads API keys from `.env`.  
-- Human approval before execution.  
-- Docker container execution with error handling.  
-- Clean output formatting.  
+- Laddar API keys från `.env`  
+- Human approval före körning  
+- Docker-exekvering med error handling  
+- Ren outputformattering  
 
----
+## TODO
+- Command history, LLMen kan se historik och fortsätta köra kommandon. 
+- Auto Loop mode (ingen mänsklig översikt)
+- Validation & safety checks (agenter som dubbellkollar och verifierar vad huvudagenten gör) 
+- Köra agenten på riktigt och test om den kan hitta enkla ctf-flaggor
+- Lägg till Temporal AI (viktigt)ww
+- Multi-agentiskt workflow system (viktigt)
 
-## Roadmap / TODO
-- Command history  
-- Continuous loop mode  
-- Validation and safety checks  
-- Multiple challenge modes  
-- Logging and audit trail  
-- Configurable environments  
+EXTRA:
+- Logging & audit trail  # samla och spara all data för analys
 - Multi-container support  
-- Rollback functionality  
+- Rollback funktion  
+- Specialiserade agenter som huvudagenten kan kalla på för specifika uppgifter
+- Agent som kan köra och testa kod i sandbox
+- Tillgång till internet eller resurser när den fastnar.
