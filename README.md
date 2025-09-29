@@ -77,13 +77,13 @@ python main.py
 - Köra agenten på riktigt och test om den kan hitta enkla ctf-flaggor
 - Lägg till Temporal AI (viktigt)ww
 - Multi-agentiskt workflow system (viktigt)
-- lägg till Mount/shared volumes: Persist data, logs, code.
 - lägg till så LLmen alltid ser vart den är
 USER: root
 HOST: f08654ced603
 CWD: /workspace
 NETWORK: container-only
 Then include the visible prompt as a cosmetic aid for human readers.
+
 
 EXTRA:
 - Logging & audit trail  # samla och spara all data för analys

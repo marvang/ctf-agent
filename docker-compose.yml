@@ -2,9 +2,32 @@ services:
   kali:
     build: .
     container_name: kali-linux
+    working_dir: /ctf-workspace
     tty: true
     stdin_open: true
     cap_add:
       - NET_RAW
       - NET_ADMIN
       - NET_BIND_SERVICE
+    # devices:
+    #   - /dev/net/tun          # needed for OpenVPN/WireGuard
+    volumes:
+      - ./ctf-workspace:/ctf-workspace
+    # env_file: # Optional if we want to load environment variables inside the container
+    #   - .env
+
+  # Optional local vulnerable target (example)
+  # target:
+  #   image: vulnerables/
+  #   container_name: ctf-target
+  #   ports:
+  #     - "8080:80"
+
+
+# TODO: For real CTF we use VPN OR local targets, examples of local targets:
+#   OWASP Juice Shop (bkimminich/juice-shop) with CTF mode. Flags are auto-generated via a shared CTF_KEY and integrate with CTFd using juice-shop-ctf-cli.
+# Run: docker run -p 3000:3000 bkimminich/juice-shop (generate/import flags with the CLI).  ￼
+# 	•	OWASP WrongSecrets (jeroenwillemsen/wrongsecrets). Purpose-built “find the secret/flag” challenges, supports CTF mode and Docker.
+# Run: docker run -p 8080:8080 jeroenwillemsen/wrongsecrets.  ￼
+# 	•	OWASP Security Shepherd (owasp/security-shepherd). Full training/CTF platform with scoring; provided Docker setup. Heavier than the above.
+# Start via the project’s Docker guide/compose.  ￼

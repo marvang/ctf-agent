@@ -10,3 +10,6 @@ wheels/
 .uv/
 # Virtual environments
 .venv
+ctf-workspace/
+ctf-logs/
+
