@@ -5,12 +5,12 @@ import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from src.config.logging import get_logger
+from src.utils.state_manager import get_mode, set_mode, update_state
 import re
 
 logger = get_logger("watcher")
 
-MODE = "Auto"
-HOST_LOG_DIR = "./ctf-logs/watcher-logs/"  
+HOST_LOG_DIR = "./ctf-logs/watcher-logs/"
 LOGFILE = "watcher.log"
 
 class Watcher(FileSystemEventHandler):
@@ -21,15 +21,19 @@ class Watcher(FileSystemEventHandler):
         self.log_path = os.path.join(HOST_LOG_DIR, LOGFILE)
 
     def on_modified(self, event):
-        global MODE
         if event.is_directory:
             return
         rel_path = os.path.relpath(event.src_path, self.root_folder)
         msg = f"File modified: {rel_path}"
         self._write_log(msg)
-        if re.search(r'flag.*\.txt$', str(rel_path), re.IGNORECASE) and MODE == "Auto": # stops when flag file is changed.
-            MODE = "Semi-auto"
-            self._write_log("Flag file changed - switching MODE to Semi-auto")
+
+        # Check if flag file was modified and mode is still auto
+        if re.search(r'flag.*\.txt$', str(rel_path), re.IGNORECASE):
+            current_mode = get_mode()
+            if current_mode == "auto":
+                set_mode("semi-auto")
+                update_state(flag_found=True)
+                self._write_log("Flag file changed - switching MODE to semi-auto")
 
     def _write_log(self, message: str):
         logger.info(message)
@@ -37,12 +41,12 @@ class Watcher(FileSystemEventHandler):
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
 
 def main(folder_to_watch):
-    global MODE
     event_handler = Watcher(folder_to_watch)
     observer = Observer()
     observer.schedule(event_handler, folder_to_watch, recursive=True)
     observer.start()
-    logger.info(f"Started monitoring directory: {folder_to_watch} (MODE={MODE})")
+    current_mode = get_mode()
+    logger.info(f"Started monitoring directory: {folder_to_watch} (MODE={current_mode})")
     try:
         while True:
             time.sleep(1)

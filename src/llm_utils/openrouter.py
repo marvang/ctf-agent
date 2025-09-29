@@ -7,10 +7,31 @@ from urllib.error import HTTPError, URLError
 from dotenv import load_dotenv
 
 
-def call_openrouter(system_prompt: str, user_prompt: str, model_name: str, free_api: bool = False) -> Tuple[str, str]:
+def call_openrouter(system_prompt: str, user_prompt: str, model_name: str) -> Tuple[str, str]:
+    """
+    Single-shot call with system and user prompts (backward compatibility)
+    """
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    return call_openrouter_with_history(messages=messages, model_name=model_name)
+
+
+def call_openrouter_with_history(messages: list, model_name: str) -> Tuple[str, str]:
+    """
+    Call OpenRouter API with full message history for context-aware responses
+
+    Args:
+        messages: List of message dicts with 'role' and 'content' keys
+        model_name: OpenRouter model identifier
+
+    Returns:
+        Tuple of (reasoning, shell_command) parsed from LLM response
+    """
     load_dotenv()
-    
-    api_key_env = "OPENROUTER_FREE_KEY" if free_api else "OPENROUTER_API_KEY"
+
+    api_key_env = "OPENROUTER_API_KEY"
     api_key = os.getenv(api_key_env)
     if not api_key:
         raise RuntimeError(f"{api_key_env} not found in environment variables")
@@ -19,17 +40,13 @@ def call_openrouter(system_prompt: str, user_prompt: str, model_name: str, free_
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        # Optional: identify your app; safe to omit if unknown
         "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "https://localhost"),
         "X-Title": os.getenv("OPENROUTER_APP_NAME", "ctf-agent"),
     }
 
     payload = {
         "model": model_name,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+        "messages": messages,
     }
 
     req = request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
@@ -41,7 +58,6 @@ def call_openrouter(system_prompt: str, user_prompt: str, model_name: str, free_
     except URLError as e:
         raise RuntimeError(f"OpenRouter URL error: {e.reason}")
 
-    # Try to align return with Groq: (reasoning, shell_command)
     try:
         content = data["choices"][0]["message"]["content"]
     except Exception:

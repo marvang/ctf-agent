@@ -1,4 +1,4 @@
-# CTF Agent v1.1
+# CTF Agent v1.2
 
 Två delar för att komma igång:  
 1. **Kali Linux container** via Docker  
@@ -27,6 +27,7 @@ Get the **OpenRouter API key** from the hackathon Discord channel.
 ## Quick Start
 1) **Install dependencies**
 ```bash
+source ./venv/bin/activate
 uv sync
 ```
 
@@ -64,19 +65,20 @@ docker compose down
 
 ## Optional: Watcher
 Kör i separat terminal på din dator för att se ändringar i workspace och logga dem.
+Här kan vi lägga in flera funktioner, logga kommandon, outputs osv.
 ```bash
-pip install watchdog
-python watcher.py ./ctf-workspace
-# gör en ändring i workspace för att se loggar
+python watcher.py
 ```
 
-## TODO
-- Command history och sessioner per körning  
-- Semi-auto läge och full-auto läge  
-- Validation & safety checks (dubbelkolla och verifiera steg)  
-- Multi-agentiskt workflow  
+## TODO   
+- Multi-agentiskt workflow  (VIKTIGT- Erik?)
 - Visa USER/HOST/CWD/NETWORK i agentens kontext  
 - Token- och kostnadsmätning (live)  
-- Koppla till riktig CTF-miljö
-- Agent som kan köra och testa kod i sandbox
-- Rollback funktion 
+- Koppla till riktig CTF-miljö (VIKTIGT- Adam)
+- Agent som kan köra och testa scripts i separat sandboxmiljö, verifiera outputs (multi-agent).
+- Huvud-agent som ansvarar för planering, strategi, och delegering av uppgifter.
+- Rollback funktion. Detta innebär att lägga in en treshold där efter ett tag, eller viss antal tokens, så stoppar vi körningen. Därefter ber vi språkmodellen sammanfatta det den har gjort, vad som fungerat, vad som inte fungerat, detta ges som fördel till i workspace för nästa körning, så att agenten kan "starta om på nytt" med fördel.
+- Temporal AI 
+- Structured outputs (json schema)
+- reasoning?
+- cached tokens?
