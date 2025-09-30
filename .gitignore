@@ -11,5 +11,7 @@ wheels/
 # Virtual environments
 .venv
 ctf-workspace/
-ctf-logs/
-
+# Test logs
+tests/token_logs.jsonl
+tests/token_state.json
+tests/

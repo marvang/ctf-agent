@@ -18,7 +18,7 @@ def call_llm_with_history(messages, model_name):
         messages: List of message dicts with 'role' and 'content' keys
         model_name: Model identifier
     Returns:
-        Tuple of (reasoning, shell_command) parsed from LLM response
+        Tuple of (reasoning, shell_command, usage) parsed from LLM response
     """
     load_dotenv()
     return call_openrouter_with_history(

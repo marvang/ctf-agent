@@ -2,16 +2,22 @@
 import os
 import sys
 import time
+from dotenv import load_dotenv
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from src.config.logging import get_logger
-from src.utils.state_manager import get_mode, set_mode, update_state
+from src.utils.state_manager import get_mode, set_mode, update_state, get_model_token_state
 import re
 
+load_dotenv()
 logger = get_logger("watcher")
 
+# Constants
 HOST_LOG_DIR = "./ctf-logs/watcher-logs/"
 LOGFILE = "watcher.log"
+WATCH_INTERVAL = 30  # seconds
+TOKEN_DISPLAY_INTERVAL = 30  # seconds
+DEFAULT_WORKSPACE = "./ctf-workspace"
 
 class Watcher(FileSystemEventHandler):
     def __init__(self, root_folder):
@@ -41,15 +47,43 @@ class Watcher(FileSystemEventHandler):
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
 
 def main(folder_to_watch):
+    # Get model from environment
+    selected_model = os.getenv("OPENROUTER_MODEL", "unknown")
+
     event_handler = Watcher(folder_to_watch)
     observer = Observer()
     observer.schedule(event_handler, folder_to_watch, recursive=True)
     observer.start()
     current_mode = get_mode()
-    logger.info(f"Started monitoring directory: {folder_to_watch} (MODE={current_mode})")
+
+    logger.info(f"Started monitoring directory: {folder_to_watch}")
+    logger.info(f"MODE={current_mode} | MODEL={selected_model}")
+    print(f"🔍 Watcher started - Monitoring: {folder_to_watch}")
+    print(f"   • Mode: {current_mode}")
+    print(f"   • Model: {selected_model}")
+
     try:
+        last_token_display = time.time()
+        last_token_stats = get_model_token_state(selected_model)
         while True:
-            time.sleep(1)
+            time.sleep(WATCH_INTERVAL)
+
+            # Check for token stat changes
+            current_token_stats = get_model_token_state(selected_model)
+            stats_changed = (
+                current_token_stats.get('request_count', 0) != last_token_stats.get('request_count', 0) or
+                current_token_stats.get('total_tokens', 0) != last_token_stats.get('total_tokens', 0) or
+                current_token_stats.get('total_cost', 0) != last_token_stats.get('total_cost', 0)
+            )
+
+            # Display token stats only if there are changes
+            if stats_changed and current_token_stats.get('request_count', 0) > 0:
+                print(f"\n📊 Overall Token Stats ({selected_model}):")
+                print(f"   • Total requests (all sessions): {current_token_stats.get('request_count', 0)}")
+                print(f"   • Total tokens (all sessions): {current_token_stats.get('total_tokens', 0)}")
+                print(f"   • Cost (all sessions): {current_token_stats.get('total_cost', 0):.6f} credits")
+                last_token_stats = current_token_stats
+
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt, shutting down...")
         observer.stop()
@@ -57,7 +91,7 @@ def main(folder_to_watch):
     logger.info("Watcher stopped successfully")
 
 if __name__ == "__main__":
-    folder = sys.argv[1] if len(sys.argv) > 1 else "./ctf-workspace"
+    folder = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_WORKSPACE
     if not os.path.isdir(folder):
         logger.error(f"Directory not found: {folder}")
         sys.exit(1)

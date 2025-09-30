@@ -1,13 +1,16 @@
 
 import os
 import json
-from typing import Tuple
+import re
+from typing import Tuple, Dict, Any
 from urllib import request
 from urllib.error import HTTPError, URLError
 from dotenv import load_dotenv
+from src.utils.model_utils import supports_structured_output
+from src.utils.response_schema import get_ctf_response_schema
 
 
-def call_openrouter(system_prompt: str, user_prompt: str, model_name: str) -> Tuple[str, str]:
+def call_openrouter(system_prompt: str, user_prompt: str, model_name: str) -> Tuple[str, str, Dict[str, Any]]:
     """
     Single-shot call with system and user prompts (backward compatibility)
     """
@@ -18,7 +21,7 @@ def call_openrouter(system_prompt: str, user_prompt: str, model_name: str) -> Tu
     return call_openrouter_with_history(messages=messages, model_name=model_name)
 
 
-def call_openrouter_with_history(messages: list, model_name: str) -> Tuple[str, str]:
+def call_openrouter_with_history(messages: list, model_name: str) -> Tuple[str, str, Dict[str, Any]]:
     """
     Call OpenRouter API with full message history for context-aware responses
 
@@ -27,7 +30,7 @@ def call_openrouter_with_history(messages: list, model_name: str) -> Tuple[str, 
         model_name: OpenRouter model identifier
 
     Returns:
-        Tuple of (reasoning, shell_command) parsed from LLM response
+        Tuple of (reasoning, shell_command, usage) parsed from LLM response
     """
     load_dotenv()
 
@@ -47,7 +50,12 @@ def call_openrouter_with_history(messages: list, model_name: str) -> Tuple[str, 
     payload = {
         "model": model_name,
         "messages": messages,
+        "usage": {"include": True},
     }
+
+    # Add structured output if model supports it
+    if supports_structured_output(model_name):
+        payload["response_format"] = get_ctf_response_schema()
 
     req = request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
     try:
@@ -63,19 +71,63 @@ def call_openrouter_with_history(messages: list, model_name: str) -> Tuple[str, 
     except Exception:
         content = json.dumps(data)
 
-    # Attempt to parse JSON with keys reasoning/shell_command; otherwise fallback
-    reasoning = content
+    # Parse JSON response - try multiple strategies
+    reasoning = ""
     shell_command = ""
+
+    # Strategy 1: Try to parse as pure JSON
     try:
         parsed = json.loads(content)
         if isinstance(parsed, dict):
-            if "reasoning" in parsed:
-                reasoning = parsed.get("reasoning", reasoning)
-            if "shell_command" in parsed:
-                shell_command = parsed.get("shell_command", "")
-    except Exception:
+            reasoning = parsed.get("reasoning", "")
+            shell_command = parsed.get("shell_command", "")
+
+            # If we got both fields, we're done
+            if reasoning and shell_command:
+                usage = data.get("usage", {})
+                return reasoning, shell_command, usage
+    except json.JSONDecodeError:
         pass
 
-    return reasoning, shell_command
+    # Strategy 2: Try to extract JSON from markdown code blocks
+    json_pattern = r'```(?:json)?\s*(\{.*?\})\s*```'
+    matches = re.findall(json_pattern, content, re.DOTALL)
+    for match in matches:
+        try:
+            parsed = json.loads(match)
+            if isinstance(parsed, dict):
+                reasoning = parsed.get("reasoning", "")
+                shell_command = parsed.get("shell_command", "")
+
+                if reasoning and shell_command:
+                    usage = data.get("usage", {})
+                    return reasoning, shell_command, usage
+        except json.JSONDecodeError:
+            continue
+
+    # Strategy 3: Try to find JSON object in the text
+    json_obj_pattern = r'\{[^{}]*"reasoning"[^{}]*"shell_command"[^{}]*\}'
+    matches = re.findall(json_obj_pattern, content, re.DOTALL)
+    for match in matches:
+        try:
+            parsed = json.loads(match)
+            if isinstance(parsed, dict):
+                reasoning = parsed.get("reasoning", "")
+                shell_command = parsed.get("shell_command", "")
+
+                if reasoning and shell_command:
+                    usage = data.get("usage", {})
+                    return reasoning, shell_command, usage
+        except json.JSONDecodeError:
+            continue
+
+    # Fallback: If all parsing failed, return content as reasoning
+    if not reasoning:
+        reasoning = content
+
+    # Extract usage information
+    usage = data.get("usage", {})
+
+    return reasoning, shell_command, usage
 
 
