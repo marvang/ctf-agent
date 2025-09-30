@@ -1,11 +1,15 @@
-# CTF Agent v1.3
+# CTF Agent v1.4 - HackTheBox Integration
 
-Två delar för att komma igång:
-1. **Kali Linux container** via Docker  
-2. **CTF Agent** som föreslår kommandon som sedan körs (med human approval)  
+## 🚀 Snabbstart
 
-Dependencies via **uv** istället för pip.
-ladda ner:
+### Förkunskaper
+- Docker Desktop
+- uv (Python package manager)
+- OPENROUTER_API_KEY
+
+### Installation
+
+1. **Installera uv (Python package manager)**
 ```bash
 # Linux/macOS
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -14,77 +18,164 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -c "irm https://astral.sh/uv/install.sh | iex"
 # om det inte funkar, testa:
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-astral.sh
 ```
 
-Get the **OpenRouter API key** from the hackathon Discord channel.
-
-## Prerequisites
-- [Docker](https://docs.docker.com/get-docker/) Desktop  
-- [uv](https://github.com/astral-sh/uv)  
-- **OPENROUTER_API_KEY**
-
-## Quick Start
-1) **Install dependencies**
+2. **Installera dependencies**
 ```bash
 source ./venv/bin/activate
 uv sync
 ```
 
-2) **Set API key**
+3. **Konfigurera API-nycklar**
 ```bash
-# skapa fil som heter .env in the project root och lägg till: OPENROUTER_API_KEY=nyckel
-# Lägg också till:
-# OPENROUTER_MODEL=openai/gpt-5-mini
-# OPENROUTER_MODEL=anthropic/claude-sonnet-4.5
-OPENROUTER_MODEL=x-ai/grok-code-fast-1
+# Skapa .env-fil i projektets root
+echo "OPENROUTER_API_KEY=din_nyckel_här" > .env
+echo "OPENROUTER_MODEL=anthropic/claude-3.5-sonnet" >> .env
+echo "TARGET_IP=10.129.80.148" >> .env
 
-# Supportade modeller är grok, gpt-5, och sonnet familjerna.
-# get the key from the hackathon Discord channel
+# Supportade modeller:
+# OPENROUTER_MODEL=openai/gpt-4o-mini
+# OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
+# OPENROUTER_MODEL=x-ai/grok-beta
 ```
 
-3) **Start container and run agent**
+4. **Starta Docker-miljön**
 ```bash
-# build kan ta några minuter
+# Bygg container (tar några minuter första gången)
 docker compose build 
-# kör container i bakgrund
+
+# Starta container i bakgrunden
 docker compose up -d
-# skapa test.txt fil i ctf-workspace och lägg in något, typ: flag{12345abcd}
-python main.py
-# ctrl+C för att stänga av, och sen kör: docker compose down
 ```
 
-- **Kali shell (optional):**
+5. **Kör CTF Agent**
 ```bash
+python main.py
+```
+
+## 🌟 Nya funktioner i v1.4
+
+### 🌐 HackTheBox VPN Integration
+- **Automatisk VPN-anslutning** till HackTheBox labs
+- **Dual-miljö support**: Lokal container + HackTheBox VPN
+- **Target IP konfiguration** via .env-variabler
+
+### 🎯 Miljöval vid start
+```
+🌐 Välj miljö:
+1. Lokal miljö (standard)
+2. HackTheBox - Meow (Starting Point)
+```
+
+### 🤖 Förbättrad AI-agent
+- **Specialiserad HackTheBox prompt** med Telnet-exploitation kunskap
+- **Automatisk nmap-scanning** av target IP
+- **Smart exit-detection** för automatisk avslutning
+- **Flagga-saving automation** innan programavslutning
+
+### ⚙️ Körlägen
+- **Auto**: Kör kommandon automatiskt (max 15 iterationer)
+- **Semi-Auto**: Frågar innan varje kommando
+
+## 📋 Manuell setup för HackTheBox
+
+### 🔧 HackTheBox VPN Setup
+```bash
+# 1. Ladda ner din .ovpn-fil från HackTheBox
+# 2. Kopiera till ctf-workspace
+cp ~/Downloads/lab_connection.ovpn ./ctf-workspace/hackthebox.ovpn
+
+# 3. Gör VPN-skript körbara
+chmod +x ./ctf-workspace/connect-htb.sh
+chmod +x ./ctf-workspace/disconnect-htb.sh
+```
+
+### 🚀 Daglig användning
+```bash
+# 1. Starta programmet
+python main.py
+
+# 2. Välj HackTheBox-miljö (alternativ 2)
+# 3. Agenten ansluter automatiskt till VPN
+# 4. Börjar med nmap-scanning av target IP
+# 5. Följer Telnet-exploitation strategi
+# 6. Sparar flaggan och avslutar automatiskt
+```
+
+## 🛠️ Grundläggande funktioner (från v1.3)
+
+### Container Management
+```bash
+# Kali shell (optional)
 docker compose exec kali bash
 exit
+
+# Stäng ner miljön
 docker compose down
 ```
-- **Workspace:** en delad mapp som finns både i projektet och inne i containern.
 
-- **Playground och tests/:** snabb plats att testa nya idéer innan implementering i main.py
+### Workspace
+- **Delad mapp** mellan projektet och containern
+- **Automatisk filhantering** för flaggor och rapporter
+- **Session-logging** av alla kommandon och resultat
 
-## Features
-
-- Timeout-skydd för kommandon   
-
-## Optional: Watcher
-Kör i separat terminal på din dator för att se när agenten hittar flaggan och gör ändringar i workspace och logga dem.
-Här kan vi lägga in flera funktioner, logga kommandon, outputs osv.
+### Optional: Watcher
 ```bash
+# Kör i separat terminal för att övervaka ändringar
 python watcher.py
 ```
 
-## TODO   
-- Multi-agentiskt workflow  (VIKTIGT- Erik?)
-- Visa USER/HOST/CWD/NETWORK i agentens kontext
-- Implementera riktiga prompten   
-- Koppla till riktig CTF-miljö (VIKTIGT- Adam)
-- Agent som kan köra och testa scripts i separat sandboxmiljö, verifiera outputs (multi-agent).
-- Huvud-agent som ansvarar för planering, strategi, och delegering av uppgifter.
-- Temporal AI 
+## 📁 Automatiskt skapade filer
 
-Mindre viktigt:
-- reasoning?
-- cached tokens?
-- Rollback funktion. Detta innebär att lägga in en treshold där efter ett tag, eller viss antal tokens, så stoppar vi körningen. Därefter ber vi språkmodellen sammanfatta det den har gjort, vad som fungerat, vad som inte fungerat, detta ges som fördel till i workspace för nästa körning, så att agenten kan "starta om på nytt" med fördel.
+```
+ctf-logs/
+├── sessions.json       # Session-historik med kommandon
+├── token_logs.jsonl    # API-användningsstatistik
+└── token_state.json    # Token-räknare per modell
+
+ctf-workspace/
+├── flags.txt          # Upptäckta flaggor
+├── reports.txt        # Detaljerade rapporter
+├── hackthebox.ovpn    # VPN-konfiguration (manuell)
+├── connect-htb.sh     # VPN-anslutningsskript
+└── disconnect-htb.sh  # VPN-frånkopplingsskript
+```
+
+## 🔍 Övervakningspunkter
+
+### För användaren att hålla koll på:
+1. **API-krediter** i OpenRouter-kontot
+2. **VPN-anslutningsstatus** (visas i programmet)
+3. **Target IP-adresser** (updatera TARGET_IP i .env vid behov)
+4. **Session-resultat** i ctf-logs-mappen
+5. **Docker-containernsatuts** (kör `docker ps` för att kontrollera)
+
+## 🛡️ Säkerhetsfunktioner
+
+- **Signal-hantering** för graceful shutdown (Ctrl+C)
+- **Timeout-skydd** för kommandon (120 sekunder)
+- **Iteration-begränsning** (max 15 i auto-läge)
+- **VPN-verifiering** innan målscanning
+- **Automatisk filrensning** mellan sessions
+
+## TODO v1.5+
+
+### Högt prioriterat:
+- ✅ **Koppla till riktig CTF-miljö** (HackTheBox integration klar)
+- **Multi-agentiskt workflow** (separata agenter för recon, exploit, post-exploit)
+- **Utökat HackTheBox support** (fler Starting Point labs)
+
+### Medel prioriterat:
+- **Visa USER/HOST/CWD/NETWORK** i agentens kontext
+- **Agent som kan testa scripts** i separat sandboxmiljö
+- **Huvudagent för planering** och strategisk delegering
+- **Rollback-funktion** med sammanfattningar
+
+### Lågt prioriterat:
+- **Reasoning caching**
+- **Cached tokens** för kostnadsoptimering
+- **Temporal AI** för tidsbaserade beslut
+
+---
+
+**🎯 CTF Agent v1.4 är nu helt automatiserad för HackTheBox Meow-utmaningen och kräver minimal manuell intervention!**

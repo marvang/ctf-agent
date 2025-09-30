@@ -9,8 +9,9 @@ services:
       - NET_RAW
       - NET_ADMIN
       - NET_BIND_SERVICE
-    # devices:
-    #   - /dev/net/tun          # needed for OpenVPN/WireGuard
+    devices:
+      - /dev/net/tun          # needed for OpenVPN/WireGuard
+    privileged: true           # Required for VPN functionality
     volumes:
       - ./ctf-workspace:/ctf-workspace
     # env_file: # Optional if we want to load environment variables inside the container
