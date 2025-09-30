@@ -25,6 +25,9 @@ RUN apt-get update && \
         nmap \
         net-tools \
         libcap2-bin \
+        openvpn \
+        iproute2 \
+        iptables \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Default command
