@@ -161,17 +161,23 @@ def main():
     print("\n🌐 Välj miljö:")
     print("1. Lokal miljö (standard)")
     print("2. HackTheBox - Meow (Starting Point)")
-    # print("3. HackTheBox - Anpassad target")  # Tillfälligt dolt
+    print("3. HackTheBox - Anpassad target (Avancerat)")
     
-    env_choice = input("Välj miljö (1/2) [1]: ").strip() or "1"
+    env_choice = input("Välj miljö (1/2/3) [1]: ").strip() or "1"
     
-    use_vpn = env_choice == "2"
+    use_vpn = env_choice in ["2", "3"]
     target_info = ""
     
     if env_choice == "2":
         target_info = f"Meow ({target_ip})"
-    # elif env_choice == "3":  # Tillfälligt dolt
-    #     target_info = input("Ange target IP eller namn: ").strip() or "Custom target"
+    elif env_choice == "3":
+        custom_ip = input("Ange target IP: ").strip()
+        if custom_ip:
+            target_ip = custom_ip  # Override the default target IP
+            target_info = f"Custom target ({target_ip})"
+        else:
+            print("❌ Target IP krävs för anpassad miljö")
+            return
     else:
         target_info = "Lokal container miljö"
 
@@ -226,13 +232,15 @@ def main():
 
     # Initialize chat history with appropriate prompt based on environment
     if use_vpn:
-        # Use HackTheBox-aware prompt for VPN connections
-        system_prompt = prompts.HACKTHEBOX_SYSTEM_PROMPT
-        environment_context = f"Environment: {target_info} (VPN Connected)"
         if env_choice == "2":
+            # Use HackTheBox-aware prompt with Telnet expertise for Meow
+            system_prompt = prompts.HACKTHEBOX_SYSTEM_PROMPT
+            environment_context = f"Environment: {target_info} (VPN Connected)"
             environment_context += f"\\nTarget: HackTheBox Starting Point - Meow. Target IP: {target_ip}\\nStart by scanning this specific IP: nmap -sCV -T4 {target_ip}"
-        # elif env_choice == "3":  # Tillf\u00e4lligt dolt
-        #     environment_context += f"\\nTarget: {target_info}\\nStart with network reconnaissance."
+        elif env_choice == "3":
+            # Use advanced ATTACKER_PROMPT for custom targets
+            system_prompt = prompts.ATTACKER_PROMPT.replace("{kali_prompt}", prompts.kali_prompt)
+            environment_context = f"Environment: {target_info} (VPN Connected)\\nTarget: {target_ip}\\nStart with network reconnaissance of the target: nmap -sCV -T4 {target_ip}"
     else:
         # Use original simple prompt for local environment
         system_prompt = prompts.MAIN_SYSTEM_PROMPT
