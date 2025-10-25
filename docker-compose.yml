@@ -5,13 +5,19 @@ services:
     working_dir: /ctf-workspace
     tty: true
     stdin_open: true
+    privileged: false
+    cap_drop:
+      - ALL
     cap_add:
-      - NET_RAW
       - NET_ADMIN
+      - NET_RAW
       - NET_BIND_SERVICE
     devices:
-      - /dev/net/tun          # needed for OpenVPN/WireGuard
-    privileged: true           # Required for VPN functionality
+      - /dev/net/tun:/dev/net/tun
+    device_cgroup_rules:
+      - 'c 10:200 rwm'   # /dev/net/tun
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./ctf-workspace:/ctf-workspace
     # env_file: # Optional if we want to load environment variables inside the container

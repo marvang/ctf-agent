@@ -15,3 +15,7 @@ ctf-workspace/
 tests/token_logs.jsonl
 tests/token_state.json
 tests/
+watcher.py
+old_prompts.py
+playground.ipynb
+ctf-logs/

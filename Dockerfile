@@ -16,9 +16,7 @@ RUN apt-get update && \
     apt-get update --allow-releaseinfo-change && \
     apt-get -y --fix-missing full-upgrade && \
     apt-get install -y --no-install-recommends \
-        # kali-linux-headless \
-        kali-linux-default \
-        # kali-linux-large \
+        kali-linux-headless \
         python3 \
         python3-pip \
         iputils-ping \
@@ -28,7 +26,72 @@ RUN apt-get update && \
         openvpn \
         iproute2 \
         iptables \
+        seclists \
+        wordlists \
+        sqlmap \
+        gobuster \
+        nikto \
+        ffuf \
+        wfuzz \
+        dirb \
+        wpscan \
+        crackmapexec \
+        evil-winrm \
+        impacket-scripts \
+        responder \
+        feroxbuster \
+        nuclei \
+        masscan \
+        tshark \
+        exploitdb \
+        netcat-traditional \
+        chisel \
+        proxychains4 \
+        sslscan \
+        sslyze \
+        testssl.sh \
+        dnsenum \
+        dnsrecon \
+        sublist3r \
+        amass \
+        fierce \
+        whatweb \
+        wafw00f \
+        commix \
+        linux-exploit-suggester \
+        webshells \
+        bloodhound.py \
+        mitmproxy \
+        john \
+        hashcat \
+        hydra \
+        smbmap \
+        enum4linux-ng \
+        subfinder \
+        # --- additions for broader coverage (copy-paste block) ---
+        aircrack-ng \
+        lynis \
+        theharvester \
+        tcpdump \
+        gdb \
+        gdb-multiarch \
+        radare2 \
+        python3-ropgadget \
+        checksec \
+        binwalk \
+        metasploit-framework \
+        ettercap-text-only \
+        reaver \
+        iw \
+        wireless-tools \
+        python3-pwntools \
+        python3-dev \
+        libssl-dev \
+        libffi-dev \
+        build-essential \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+
+# pspy, powershell and rustscan must be installed separately
 # Default command
 CMD ["/bin/bash"]

@@ -1,20 +1,20 @@
 {
   "models": {
     "x-ai/grok-code-fast-1": {
-      "total_input_tokens": 30939,
-      "total_output_tokens": 9444,
-      "total_reasoning_tokens": 7571,
-      "total_tokens": 40383,
-      "total_cost": 0.01610292,
-      "request_count": 25
+      "total_input_tokens": 316521,
+      "total_output_tokens": 52239,
+      "total_reasoning_tokens": 41236,
+      "total_tokens": 368760,
+      "total_cost": 0.09420030000000003,
+      "request_count": 127
     },
     "anthropic/claude-sonnet-4.5": {
-      "total_input_tokens": 86620,
-      "total_output_tokens": 4402,
+      "total_input_tokens": 1042376,
+      "total_output_tokens": 29319,
       "total_reasoning_tokens": 0,
-      "total_tokens": 91022,
-      "total_cost": 0.32588999999999996,
-      "request_count": 47
+      "total_tokens": 1071695,
+      "total_cost": 3.566912999999999,
+      "request_count": 285
     },
     "openai/gpt-5-mini": {
       "total_input_tokens": 156095,
@@ -23,6 +23,38 @@
       "total_tokens": 221061,
       "total_cost": 0.14657815000000002,
       "request_count": 80
+    },
+    "deepseek/deepseek-chat-v3.1:free": {
+      "total_input_tokens": 3112,
+      "total_output_tokens": 491,
+      "total_reasoning_tokens": 0,
+      "total_tokens": 3603,
+      "total_cost": 0.0,
+      "request_count": 5
+    },
+    "z-ai/glm-4.5-air:free": {
+      "total_input_tokens": 51212,
+      "total_output_tokens": 7412,
+      "total_reasoning_tokens": 3666,
+      "total_tokens": 58624,
+      "total_cost": 0.0,
+      "request_count": 36
+    },
+    "openai/gpt-5-codex": {
+      "total_input_tokens": 8693356,
+      "total_output_tokens": 158148,
+      "total_reasoning_tokens": 118144,
+      "total_tokens": 8851504,
+      "total_cost": 3.1269109999999993,
+      "request_count": 656
+    },
+    "google/gemini-2.5-pro": {
+      "total_input_tokens": 243641,
+      "total_output_tokens": 9284,
+      "total_reasoning_tokens": 4765,
+      "total_tokens": 252925,
+      "total_cost": 0.23851087499999998,
+      "request_count": 25
     }
   }
 }
