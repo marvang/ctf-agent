@@ -4,16 +4,10 @@ CTF Agent - Main execution script
 """
 
 import os
-import docker
-import docker.errors
-import subprocess
 import time
-import signal
-import sys
-import re
 from dotenv import load_dotenv
 from src.llm_utils.api_call import call_llm_with_history
-from src.llm_utils import prompts
+from src.llm_utils.prompt_builder import build_initial_messages
 from src.utils.state_manager import (
     init_state, get_mode, set_mode, get_state, update_state,
     append_usage_log, update_token_state,
@@ -22,10 +16,21 @@ from src.utils.state_manager import (
 from src.utils.workspace import cleanup_workspace
 from src.utils.vpn import connect_to_hackthebox, disconnect_from_hackthebox
 from src.utils.docker_exec import execute_command
+from src.utils.docker_utils import connect_to_docker
+from src.utils.session_utils import display_session_summary
+from src.utils.user_interface import (
+    print_banner, prompt_environment_selection, prompt_mode_selection,
+    prompt_target_ip, prompt_custom_instructions, prompt_vpn_continue,
+    print_config_summary
+)
+from src.utils.cleanup import (
+    register_signal_handler, set_container, set_vpn_connected,
+    set_session, is_vpn_connected, set_iteration, set_start_time, set_model
+)
 
 # Constants
 COMMAND_TIMEOUT_SECONDS = 200  # Ger mer tid för nätverksscanning och NMAP
-MAX_COST_AUTO_MODE = 0.03  # Switch to semi-auto after spending $1.00
+MAX_COST_AUTO_MODE = 1  # Switch to semi-auto after spending $1.00
 MAX_OUTPUT_LENGTH = 6000  # Maximum characters of output to send to LLM
 
 # Workspace cleanup configuration
@@ -41,50 +46,10 @@ FILES_TO_EMPTY = [
     "report.txt"
 ]
 
-# Signal handler for graceful shutdown
-def signal_handler(sig, frame):
-    print('\\n\\n🛑 Avbryter programmet...')
-    print('👋 Stänger ner Docker-anslutningar...')
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, signal_handler)
-
-
-def display_session_summary(session: dict, iterations: int, elapsed_seconds: float, selected_model: str):
-    """Display final session statistics"""
-    elapsed_minutes = elapsed_seconds / 60
-    elapsed_hours = elapsed_minutes / 60
-
-    # Format elapsed time
-    if elapsed_hours >= 1:
-        time_str = f"{elapsed_hours:.2f} hours"
-    elif elapsed_minutes >= 1:
-        time_str = f"{elapsed_minutes:.2f} minutes"
-    else:
-        time_str = f"{elapsed_seconds:.2f} seconds"
-
-    # Get final token and cost info from session
-    total_input = session["token_usage"]["input_tokens"]
-    total_output = session["token_usage"]["output_tokens"]
-    total_tokens = session["token_usage"]["total_tokens"]
-    total_cost = session["token_usage"]["total_cost"]
-
-    print("\n" + "="*40)
-    print("🏁 Session ended")
-    print(f"📊 {iterations} iterations | {len(session['commands'])} commands")
-    print(f"⏱️  Elapsed time: {time_str}")
-    print(f"💾 Saved: ./ctf-logs/sessions.json")
-    print("="*40)
-    print(f"Model used: {selected_model} 🤖")
-    print("\n📈 Token Usage Summary:")
-    print(f"   Input tokens:  {total_input:,}")
-    print(f"   Output tokens: {total_output:,}")
-    print(f"   Total tokens:  {total_tokens:,}")
-    print(f"   💰 Total cost: ${total_cost:.4f}")
-    print("="*40)
-
 
 def main():
+    # Register signal handler for graceful shutdown
+    register_signal_handler()
     # Load environment variables
     load_dotenv()
 
@@ -95,32 +60,10 @@ def main():
         print("❌ Error: OPENROUTER_MODEL not found in .env file")
         return
 
-    # UX: Banner
-    print("🤖 CTF-AGENT v1.4")
-    print("="*40)
-
-    # Environment selection
-    print("\n🌐 Environment:")
-    print("1. Local container")
-    print("2. HackTheBox")
-
-    env_choice = input("Choose (1/2) [2]: ").strip() or "2"
-
-    use_vpn = env_choice in ["2"]
-    target_info = ""
-    target_ip = ""
-
-    # Mode selection
-    print("\n🤖 Mode:")
-    print("1. Auto")
-    print("2. Semi-Auto")
-
-    mode_choice = input("Choose (1/2) [1]: ").strip() or "1"
-
-    if mode_choice == "2":
-        selected_mode = "semi-auto"
-    else:
-        selected_mode = "auto"
+    # Display banner and get user selections
+    print_banner()
+    use_vpn = prompt_environment_selection()
+    selected_mode = prompt_mode_selection()
 
     # Initialize state
     init_state(mode=selected_mode)
@@ -130,88 +73,49 @@ def main():
         return
 
     # Connect to Docker first
-    try:
-        docker_client = docker.from_env()
-        container = docker_client.containers.get("kali-linux")
-        print("\n✅ Docker connected")
-    except docker.errors.NotFound:
-        print("\n❌ Docker container 'kali-linux' not found")
-        print("💡 Run: docker compose up -d")
+    _, container = connect_to_docker()
+    if container is None:
         return
-    except Exception as e:
-        print(f"\n❌ Docker error: {e}")
-        return
+    set_container(container)
 
     # Handle VPN connection if requested
-    vpn_connected = False  # Track VPN connection status for cleanup
     if use_vpn:
         if not connect_to_hackthebox(container):
-            continue_choice = input("\n⚠️  VPN failed. Continue? (y/n) [n]: ").strip().lower()
-            if continue_choice != "y":
+            if not prompt_vpn_continue():
                 return
         else:
-            vpn_connected = True  # Mark VPN as successfully connected
+            set_vpn_connected(True)
 
-        # Now ask for target IP after VPN is connected
-        target_ip = input("\n🎯 Target IP: ").strip()
-        
-        # Simple IP validation: only dots and digits
+        # Get target IP
+        target_ip = prompt_target_ip()
         if not target_ip:
-            print("❌ Target IP is required for HackTheBox environment. Exiting...")
             return
-        elif not re.match(r'^[\d.]+$', target_ip):
-            print("❌ Invalid IP format. IP should only contain digits and dots. Exiting...")
-            return
-        
-        target_info = f"{target_ip}"
+
+        target_info = target_ip
     else:
         target_info = "Local container"
 
     # Create session
     session = create_session(model=selected_model, mode=selected_mode)
+    set_session(session)
+    set_model(selected_model)
 
-    # Config summary
-    print(f"\n⚙️  Target: {target_info} | Mode: {selected_mode}")
-    print("="*40)
+    # Display configuration summary
+    print_config_summary(target_info, selected_mode)
 
-    # Initialize chat history with appropriate prompt based on environment
-    if use_vpn:
-        if env_choice == "2":
-            # Use HackTheBox-aware prompt
-            system_prompt = prompts.HACKTHEBOX_SYSTEM_PROMPT
-            environment_context = f"Environment: HackTheBox: VPN Connected. This is the only allowed target, The target ip address is: {target_info} "
-    else:
-        # Use original simple prompt for local environment
-        system_prompt = prompts.MAIN_SYSTEM_PROMPT
-        environment_context = f"Environment: {target_info} (Local Mode)\\nThis is a local container environment. Explore files and local services."
-
-    # Allow user to customize initial instructions
-    print("\n📝 Initial Instructions:")
-    print("="*40)
-    custom_instructions = input("Add custom instructions? (press Enter to skip): ").strip()
-    
-    if custom_instructions:
-        print(f"✅ Custom instructions added")
-        initial_user_prompt = f"{environment_context}\\n\\n{prompts.MAIN_INIT_PROMPT}\\n\\nADDITIONAL CUSTOM INSTRUCTIONS FROM THE TEAM: {custom_instructions}"
-    else:
-        initial_user_prompt = f"{environment_context}\\n\\n{prompts.MAIN_INIT_PROMPT}"
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": initial_user_prompt}
-    ]
+    # Get custom instructions and build initial messages
+    custom_instructions = prompt_custom_instructions()
+    messages = build_initial_messages(use_vpn, target_info, custom_instructions)
 
     iteration = 0
 
-    # Track session tokens
-    session_input_tokens = 0
-    session_output_tokens = 0
-
     # Track session start time
     session_start_time = time.time()
+    set_start_time(session_start_time)
 
     while True:
         iteration += 1
+        set_iteration(iteration)  # Update iteration count for cleanup handler
         current_mode = get_mode()
 
         # Check if auto mode has exceeded cost limit
@@ -260,8 +164,6 @@ def main():
         # Track token usage (log to file and update totals)
         if usage:
             append_usage_log(usage, selected_model)
-            session_input_tokens += usage.get("prompt_tokens", 0)
-            session_output_tokens += usage.get("completion_tokens", 0)
             update_token_state(usage, selected_model)
             update_session_tokens(session, usage)
 
@@ -308,7 +210,7 @@ def main():
 
         # Execute command
         if should_execute:
-            success, output, exit_code = execute_command(docker_client, container, shell_command, COMMAND_TIMEOUT_SECONDS)
+            success, output, exit_code = execute_command(container, shell_command, COMMAND_TIMEOUT_SECONDS)
 
             # Add to session log with full output and reasoning
             add_session_command(session, shell_command, output, exit_code, reasoning)
@@ -339,7 +241,7 @@ def main():
     save_session(session)
 
     # Disconnect VPN if it was connected
-    if vpn_connected:
+    if is_vpn_connected():
         disconnect_from_hackthebox(container)
 
     # Calculate elapsed time and display summary

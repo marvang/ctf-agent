@@ -5,7 +5,6 @@ from typing import Tuple
 
 
 def execute_command(
-    docker_client,
     container,
     shell_command: str,
     timeout_seconds: int
@@ -14,7 +13,6 @@ def execute_command(
     Execute shell command in Docker container
 
     Args:
-        docker_client: Docker client instance
         container: Docker container instance
         shell_command: Command to execute
         timeout_seconds: Timeout in seconds
