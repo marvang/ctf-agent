@@ -43,7 +43,7 @@ def get_state() -> dict:
     except (json.JSONDecodeError, IOError):
         return init_state()
 
-def update_state(mode: Optional[str] = None, flag_found: Optional[bool] = None):
+def update_state(mode: Optional[str] = None, flag_found: Optional[bool] = None, target_ip: Optional[str] = None):
     """Update specific state values"""
     state = get_state()
 
@@ -51,6 +51,8 @@ def update_state(mode: Optional[str] = None, flag_found: Optional[bool] = None):
         state["mode"] = mode
     if flag_found is not None:
         state["flag_found"] = flag_found
+    if target_ip is not None:
+        state["target_ip"] = target_ip
 
     import time
     state["last_updated"] = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -68,6 +70,7 @@ def get_mode() -> str:
 def set_mode(mode: str):
     """Set mode (auto or semi-auto)"""
     update_state(mode=mode)
+
 
 
 # Token tracking functions

@@ -99,6 +99,7 @@ Rules:
 - Finally, terminate the session with the shell command: "exit".
 
 Penetrate and exploit remote systems and networks. Perform Pivilege escalation, Pivot, lateral movement. Think like a hacker. Save flags to /ctf-workspace/flags.txt.
+- Response format {"reasoning":"...", "shell_command":"..."}
 """
 
 MAIN_INIT_PROMPT = (
@@ -106,7 +107,7 @@ MAIN_INIT_PROMPT = (
     "Target IP should be provided above. Optional Custom instructions might be provided later as well."
     """
 **Reconnaissance Workflow:**
-1. Run quick nmap scan immediately: nmap -Pn -T4  --top-ports 5000
+1. Run quick nmap scan immediately: nmap -Pn -T4  --top-ports 1000
 2. Continue with deep enumeration on discovered services.
 3. Penetrate, exploit, escalate privileges, pivot, lateral movement and more as needed, find the flag. If stuck (100+ steps), rethink strategy, analyze prior steps, enumerate and explore new attack vectors.
 """

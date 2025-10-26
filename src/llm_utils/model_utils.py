@@ -25,23 +25,13 @@ def supports_structured_output(model_name: str) -> bool:
     if "x-ai/" in model_lower or "grok" in model_lower:
         return True
 
-    # Anthropic Claude models do not support structured outputs
-    if "anthropic/" in model_lower or "claude" in model_lower:
-        return False
-
     # Default to False for unknown models (safer to rely on instruction following)
     return False
 
 
-def is_claude_model(model_name: str) -> bool:
-    """
-    Check if a model is an Anthropic Claude model.
 
-    Args:
-        model_name: The model identifier
+def supports_reasoning_trace(model_name: str) -> bool:
+    # TODO Implement, extend, and use this function.
+    return False
 
-    Returns:
-        True if it's a Claude model, False otherwise
-    """
-    model_lower = model_name.lower()
-    return "anthropic/" in model_lower or "claude" in model_lower
+

@@ -6,12 +6,12 @@ CTF Agent - Main execution script
 import os
 import time
 from dotenv import load_dotenv
-from src.llm_utils.api_call import call_llm_with_history
+from src.llm_utils.openrouter import call_openrouter_with_history
 from src.llm_utils.prompt_builder import build_initial_messages
 from src.utils.state_manager import (
     init_state, get_mode, set_mode, get_state, update_state,
     append_usage_log, update_token_state,
-    create_session, update_session_tokens, add_session_command, save_session
+    create_session, update_session_tokens, add_session_command, save_session,
 )
 from src.utils.workspace import cleanup_workspace
 from src.utils.vpn import connect_to_hackthebox, disconnect_from_hackthebox
@@ -29,9 +29,9 @@ from src.utils.cleanup import (
 )
 
 # Constants
-COMMAND_TIMEOUT_SECONDS = 200  # Ger mer tid för nätverksscanning och NMAP
+COMMAND_TIMEOUT_SECONDS = 200  #
 MAX_COST_AUTO_MODE = 1  # Switch to semi-auto after spending $1.00
-MAX_OUTPUT_LENGTH = 6000  # Maximum characters of output to send to LLM
+MAX_OUTPUT_LENGTH = 6000  # Character limit for what goes in the LLM, truncated if exceeded
 
 # Workspace cleanup configuration
 WORKSPACE_DIR = "./ctf-workspace"
@@ -86,10 +86,10 @@ def main():
         else:
             set_vpn_connected(True)
 
-        # Get target IP
         target_ip = prompt_target_ip()
         if not target_ip:
             return
+        
 
         target_info = target_ip
     else:
@@ -149,7 +149,7 @@ def main():
 
         # Call LLM with full chat history
         try:
-            reasoning, shell_command, usage = call_llm_with_history(
+            reasoning, shell_command, usage = call_openrouter_with_history(
                 messages=messages,
                 model_name=selected_model,
             )

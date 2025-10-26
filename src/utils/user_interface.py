@@ -1,5 +1,6 @@
 """User interface and input utilities"""
 import re
+from typing import Optional
 
 
 def print_banner():

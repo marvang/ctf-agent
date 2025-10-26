@@ -6,14 +6,12 @@ from typing import Tuple, Dict, Any
 from urllib import request
 from urllib.error import HTTPError, URLError
 from dotenv import load_dotenv
-from src.utils.model_utils import supports_structured_output
-from src.utils.response_schema import get_ctf_response_schema
+from src.llm_utils.model_utils import supports_structured_output
+from src.llm_utils.response_schema import get_ctf_response_schema
 
 
 def call_openrouter(system_prompt: str, user_prompt: str, model_name: str) -> Tuple[str, str, Dict[str, Any]]:
-    """
-    Single-shot call with system and user prompts (backward compatibility)
-    """
+
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
