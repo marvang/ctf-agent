@@ -8,10 +8,12 @@ import os
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+# Constants
 STATE_FILE = "./ctf-logs/state.json"
 TOKEN_LOGS_FILE = "./ctf-logs/token_logs.jsonl"
 TOKEN_STATE_FILE = "./ctf-logs/token_state.json"
 SESSIONS_FILE = "./ctf-logs/sessions.json"
+
 
 def ensure_state_dir():
     """Create state directory if it doesn't exist"""

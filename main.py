@@ -19,12 +19,14 @@ from src.utils.state_manager import (
     append_usage_log, update_token_state,
     create_session, update_session_tokens, add_session_command, save_session
 )
+from src.utils.workspace import cleanup_workspace
+from src.utils.vpn import connect_to_hackthebox, disconnect_from_hackthebox
+from src.utils.docker_exec import execute_command
 
 # Constants
-#COMMAND_TIMEOUT_SECONDS = 30
-COMMAND_TIMEOUT_SECONDS = 200 # Ger mer tid för nätverksscanning och NMAP
-MAX_COST_AUTO_MODE = 1.0  # Switch to semi-auto after spending $1.00
-MAX_OUTPUT_LENGTH = 7000  # Maximum characters of output to send to LLM
+COMMAND_TIMEOUT_SECONDS = 200  # Ger mer tid för nätverksscanning och NMAP
+MAX_COST_AUTO_MODE = 0.03  # Switch to semi-auto after spending $1.00
+MAX_OUTPUT_LENGTH = 6000  # Maximum characters of output to send to LLM
 
 # Workspace cleanup configuration
 WORKSPACE_DIR = "./ctf-workspace"
@@ -48,104 +50,38 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 
-def check_vpn_connection(container):
-    """
-    Check if VPN is already connected by looking for tun interface
-    """
-    try:
-        exit_code, output = container.exec_run(["bash", "-c", "ip link show | grep tun"])
-        return exit_code == 0
-    except Exception:
-        return False
+def display_session_summary(session: dict, iterations: int, elapsed_seconds: float, selected_model: str):
+    """Display final session statistics"""
+    elapsed_minutes = elapsed_seconds / 60
+    elapsed_hours = elapsed_minutes / 60
 
+    # Format elapsed time
+    if elapsed_hours >= 1:
+        time_str = f"{elapsed_hours:.2f} hours"
+    elif elapsed_minutes >= 1:
+        time_str = f"{elapsed_minutes:.2f} minutes"
+    else:
+        time_str = f"{elapsed_seconds:.2f} seconds"
 
-def connect_to_hackthebox(container):
-    """
-    Attempt to connect to HackTheBox VPN using the connect script.
-    The script auto-detects .ovpn files, so no filename checking needed here.
-    """
-    print("\n🔗 Connecting to HackTheBox VPN...")
-    try:
-        # Run connection script (it will auto-detect the .ovpn file)
-        exit_code, output = container.exec_run([
-            "bash", "-c",
-            "cd /ctf-workspace && ./connect-htb.sh"
-        ])
+    # Get final token and cost info from session
+    total_input = session["token_usage"]["input_tokens"]
+    total_output = session["token_usage"]["output_tokens"]
+    total_tokens = session["token_usage"]["total_tokens"]
+    total_cost = session["token_usage"]["total_cost"]
 
-        # Verify connection
-        if check_vpn_connection(container):
-            print("✅ VPN connected")
-            return True
-        else:
-            print("❌ VPN connection failed")
-            return False
-
-    except Exception as e:
-        print(f"❌ VPN error: {e}")
-        return False
-
-
-def disconnect_from_hackthebox(container):
-    """
-    Disconnect from HackTheBox VPN using the disconnect script.
-    """
-    print("\n🔌 Disconnecting from HackTheBox VPN...")
-    try:
-        exit_code, output = container.exec_run([
-            "bash", "-c",
-            "cd /ctf-workspace && ./disconnect-htb.sh"
-        ])
-        
-        print(output.decode('utf-8'))
-        
-        if exit_code == 0:
-            print("✅ VPN disconnected successfully")
-        else:
-            print(f"⚠️  Disconnect script exited with code {exit_code}")
-        
-        return exit_code == 0
-    except Exception as e:
-        print(f"❌ VPN disconnect error: {e}")
-        return False
-
-
-def execute_command(docker_client, container, shell_command):
-    """
-    Execute shell command in Docker container
-
-    Returns:
-        Tuple of (success: bool, output: str, exit_code: int)
-    """
-    try:
-        final_command = f"timeout {COMMAND_TIMEOUT_SECONDS}s {shell_command}"
-        exit_code, output = container.exec_run(
-            ["bash", "-lc", final_command],
-            tty=True,
-            stdin=True,
-            environment={"TERM": "xterm-256color"}
-        )
-
-        text_out = output.decode().strip()
-        success = exit_code == 0
-
-        print(f"\n📤 Output:")
-        print(text_out)
-        if not success:
-            print(f"⚠️  Exit code: {exit_code}")
-
-        return success, text_out, exit_code
-
-    except KeyboardInterrupt:
-        print("\\n\\n⚠️  Interrupted")
-        return False, "Command interrupted by user", -1
-    except docker.errors.NotFound:
-        error_msg = "❌ Docker container 'kali-linux' not found"
-        print(error_msg)
-        return False, error_msg, -1
-    except Exception as e:
-        error_msg = f"❌ Error: {e}"
-        print(error_msg)
-        return False, error_msg, -1
+    print("\n" + "="*40)
+    print("🏁 Session ended")
+    print(f"📊 {iterations} iterations | {len(session['commands'])} commands")
+    print(f"⏱️  Elapsed time: {time_str}")
+    print(f"💾 Saved: ./ctf-logs/sessions.json")
+    print("="*40)
+    print(f"Model used: {selected_model} 🤖")
+    print("\n📈 Token Usage Summary:")
+    print(f"   Input tokens:  {total_input:,}")
+    print(f"   Output tokens: {total_output:,}")
+    print(f"   Total tokens:  {total_tokens:,}")
+    print(f"   💰 Total cost: ${total_cost:.4f}")
+    print("="*40)
 
 
 def main():
@@ -190,87 +126,8 @@ def main():
     init_state(mode=selected_mode)
 
     # Clean up workspace files from previous sessions
-    # Get all items in workspace
-    if os.path.exists(WORKSPACE_DIR):
-        workspace_items = os.listdir(WORKSPACE_DIR)
-        
-        # Filter items to delete (everything not in approved list and not in FILES_TO_EMPTY)
-        items_to_delete = []
-        for item in workspace_items:
-            item_path = os.path.join(WORKSPACE_DIR, item)
-            
-            # Skip files that should be emptied instead of deleted
-            if item in FILES_TO_EMPTY:
-                continue
-            
-            # Check if item matches any approved pattern
-            is_approved = False
-            for pattern in APPROVED_FILES:
-                if pattern.startswith("*"):
-                    # Wildcard pattern (e.g., *.ovpn)
-                    if item.endswith(pattern[1:]):
-                        is_approved = True
-                        break
-                else:
-                    # Exact match
-                    if item == pattern:
-                        is_approved = True
-                        break
-            
-            if not is_approved:
-                items_to_delete.append(item_path)
-        
-        # Check which files to empty exist and have content
-        files_to_empty_list = []
-        for filename in FILES_TO_EMPTY:
-            file_path = os.path.join(WORKSPACE_DIR, filename)
-            if os.path.exists(file_path):
-                # Check if file has content
-                if os.path.getsize(file_path) > 0:
-                    files_to_empty_list.append(filename)
-        
-        # Ask user if they want to clean
-        if items_to_delete or files_to_empty_list:
-            print(f"\n🧹 Workspace cleanup:")
-            
-            if items_to_delete:
-                print(f"\n🗑️  Will DELETE {len(items_to_delete)} item(s):")
-                for item in items_to_delete[:5]:  # Show first 5
-                    print(f"   - {os.path.basename(item)}")
-                if len(items_to_delete) > 5:
-                    print(f"   ... and {len(items_to_delete) - 5} more")
-            
-            if files_to_empty_list:
-                print(f"\n📝 Will EMPTY (keep file, clear contents):")
-                for filename in files_to_empty_list:
-                    print(f"   - {filename}")
-            
-            wipe_choice = input("\n🧹 Proceed with cleanup? (y/n) [y]: ").strip().lower()
-            if wipe_choice == "" or wipe_choice == "y":
-                # Delete unapproved items
-                for item_path in items_to_delete:
-                    try:
-                        if os.path.isdir(item_path):
-                            import shutil
-                            shutil.rmtree(item_path)
-                            print(f"🗑️  Deleted directory: {os.path.basename(item_path)}")
-                        else:
-                            os.remove(item_path)
-                            print(f"🗑️  Deleted file: {os.path.basename(item_path)}")
-                    except Exception as e:
-                        print(f"⚠️  Could not delete {os.path.basename(item_path)}: {e}")
-                
-                # Empty files that have content
-                for filename in files_to_empty_list:
-                    file_path = os.path.join(WORKSPACE_DIR, filename)
-                    try:
-                        open(file_path, 'w').close()
-                        print(f"📝 Emptied: {filename}")
-                    except Exception as e:
-                        print(f"⚠️  Could not empty {filename}: {e}")
-            else:
-                print("\n🛑 Cleanup cancelled. Exiting...")
-                return
+    if not cleanup_workspace(WORKSPACE_DIR, APPROVED_FILES, FILES_TO_EMPTY):
+        return
 
     # Connect to Docker first
     try:
@@ -345,7 +202,6 @@ def main():
     ]
 
     iteration = 0
-    initial_mode = selected_mode
 
     # Track session tokens
     session_input_tokens = 0
@@ -358,15 +214,14 @@ def main():
         iteration += 1
         current_mode = get_mode()
 
-        # Check if fully-auto has exceeded cost limit
+        # Check if auto mode has exceeded cost limit
         current_session_cost = session["token_usage"]["total_cost"]
-        if initial_mode == "auto" and current_session_cost >= MAX_COST_AUTO_MODE and current_mode == "auto":
-            print(f"\n⚠️  Fully-Auto mode reached cost limit of ${MAX_COST_AUTO_MODE:.2f}!")
+        if current_mode == "auto" and current_session_cost >= MAX_COST_AUTO_MODE:
+            print(f"\n⚠️  Auto mode reached cost limit of ${MAX_COST_AUTO_MODE:.2f}!")
             print(f"💰 Current session cost: ${current_session_cost:.4f}")
             print("🔄 Switching to Semi-Auto mode for cost control...")
             set_mode("semi-auto")
             current_mode = "semi-auto"
-            initial_mode = "semi-auto"  # Don't revert back
 
         # Check if flag was found (watcher detected it)
         state = get_state()
@@ -453,7 +308,7 @@ def main():
 
         # Execute command
         if should_execute:
-            success, output, exit_code = execute_command(docker_client, container, shell_command)
+            success, output, exit_code = execute_command(docker_client, container, shell_command, COMMAND_TIMEOUT_SECONDS)
 
             # Add to session log with full output and reasoning
             add_session_command(session, shell_command, output, exit_code, reasoning)
@@ -487,39 +342,10 @@ def main():
     if vpn_connected:
         disconnect_from_hackthebox(container)
 
-    # Calculate elapsed time
+    # Calculate elapsed time and display summary
     session_end_time = time.time()
     elapsed_seconds = session_end_time - session_start_time
-    elapsed_minutes = elapsed_seconds / 60
-    elapsed_hours = elapsed_minutes / 60
-
-    # Format elapsed time
-    if elapsed_hours >= 1:
-        time_str = f"{elapsed_hours:.2f} hours"
-    elif elapsed_minutes >= 1:
-        time_str = f"{elapsed_minutes:.2f} minutes"
-    else:
-        time_str = f"{elapsed_seconds:.2f} seconds"
-
-    # Get final token and cost info from session
-    total_input = session["token_usage"]["input_tokens"]
-    total_output = session["token_usage"]["output_tokens"]
-    total_tokens = session["token_usage"]["total_tokens"]
-    total_cost = session["token_usage"]["total_cost"]
-
-    print("\n" + "="*40)
-    print("🏁 Session ended")
-    print(f"📊 {iteration} iterations | {len(session['commands'])} commands")
-    print(f"⏱️  Elapsed time: {time_str}")
-    print(f"💾 Saved: ./ctf-logs/sessions.json")
-    print("="*40)
-    print(f"Model used: {selected_model} 🤖")
-    print("\n📈 Token Usage Summary:")
-    print(f"   Input tokens:  {total_input:,}")
-    print(f"   Output tokens: {total_output:,}")
-    print(f"   Total tokens:  {total_tokens:,}")
-    print(f"   💰 Total cost: ${total_cost:.4f}")
-    print("="*40)
+    display_session_summary(session, iteration, elapsed_seconds, selected_model)
 
 
 if __name__ == "__main__":
