@@ -8,12 +8,8 @@ wheels/
 .env
 .DS_Store
 .uv/
-# Virtual environments
 .venv
-ctf-workspace/
-# Test logs
-tests/token_logs.jsonl
-tests/token_state.json
-tests/
-old_prompts.py
+ctf-workspace/*.ovpn
+ctf-workspace/vpn.log
+ctf-workspace/flags.txt
 ctf-logs/

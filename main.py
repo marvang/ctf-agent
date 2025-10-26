@@ -5,6 +5,7 @@ CTF Agent - Main execution script
 
 import os
 import time
+import json
 from dotenv import load_dotenv
 from src.llm_utils.openrouter import call_openrouter_with_history
 from src.llm_utils.prompt_builder import build_initial_messages
@@ -29,7 +30,7 @@ from src.utils.cleanup import (
 )
 
 # Constants
-COMMAND_TIMEOUT_SECONDS = 200  #
+COMMAND_TIMEOUT_SECONDS = 200 
 MAX_COST_AUTO_MODE = 1  # Switch to semi-auto after spending $1.00
 MAX_OUTPUT_LENGTH = 6000  # Character limit for what goes in the LLM, truncated if exceeded
 
@@ -186,7 +187,7 @@ def main():
         # Add assistant response to history
         assistant_message = {
             "role": "assistant",
-            "content": f'{{"reasoning": "{reasoning}", "shell_command": "{shell_command}"}}'
+            "content": json.dumps({"reasoning": reasoning, "shell_command": shell_command})
         }
         messages.append(assistant_message)
 

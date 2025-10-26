@@ -9,8 +9,6 @@ AI agent that finds and exploits vulnerabilities to solve CTF challenges.
 - Logs each session with timestamps, commands, context, and results
 
 ## Requirements
-
-- Python 3.10+ 
 - Docker Desktop  
 - uv (Python package manager)  
 - OpenRouter API key  
@@ -57,21 +55,16 @@ uv sync
 
 ### 4. Configure Environment Variables
 
-Create a `ctf-workspace/` folder in project root and add the connect-htb.sh and disconnect-htb.sh scripts there.
-
-Create a `.env` file in the project root:
-
+Create a `.env` file in the project root.
+Get an API key from [OpenRouter](https://openrouter.ai/) and add it to your `.env` file.
+Add:
 ```bash
 # Required: OpenRouter API credentials
 OPENROUTER_API_KEY=sk-or-v1-your-api-key-here
 
 # Required: Model selection
-OPENROUTER_MODEL=openai/gpt-5 # pick any model but gpt-5 and codex are good, sonnet-4.5 is also good but not as tested.
+OPENROUTER_MODEL=openai/gpt-5
 ```
-
-### 5. Get OpenRouter API Key
-
-Get an API key from [OpenRouter](https://openrouter.ai/) and add it to your `.env` file.
 
 ### 6. Install Docker Desktop
 
@@ -87,9 +80,6 @@ docker compose build
 
 # Start the container in detached mode
 docker compose up -d
-
-# Verify the container is running
-docker ps
 ```
 
 ## Getting Started
@@ -101,11 +91,11 @@ Navigate to your active machine on HackTheBox and download your `.ovpn` VPN conf
 python main.py
 ```
 
-Select environment `2` (local container recommended first time for testing) and mode `1` (semi-auto recommended first time for testing).
+Select environment `2` (local container recommended first time for testing) and then mode `1` (semi-auto recommended first time for testing).
 
 Enter target IP address (find it on the HackTheBox machine page):
 ```
-🎯 Target IP [10.129.80.148]: <enter-target-ip>
+🎯 Target IP: <enter-target-ip>
 ```
 
 Optional: Add custom instructions to LLM (e.g., "run a quick scan to start with" or "this challenge has two flags, find both flags before stopping")
@@ -121,37 +111,11 @@ The agent will:
 
 The `ctf-workspace` directory is shared between your machine and the Docker container
 
-```
-.
-├── main.py
-├── docker-compose.yml
-├── Dockerfile
-├── pyproject.toml
-├── README.md
-├── .env *                     # Requires manual setup
-├── ctf-workspace/ *           # Requires manual setup
-│   ├── flags.txt              
-│   ├── report.txt             
-│   ├── improvement_notes.txt  
-│   ├── *.ovpn *               
-│   ├── connect-htb.sh        
-│   └── disconnect-htb.sh      
-└── src/
-    ├── config/
-    │   └── logging.py
-    ├── llm_utils/
-    │   ├── api_call.py
-    │   ├── openrouter.py
-    │   └── prompts.py
-    └── utils/
-        ├── model_utils.py
-        ├── response_schema.py
-        └── state_manager.py
-```
-
 ### Docker Container Management
 
 ```bash
+# Check containers
+docker ps
 # Access the Kali container directly
 docker compose exec kali bash
 
@@ -174,4 +138,5 @@ Contributions welcome! Areas for improvement:
 - Benchmark harness feature for running large scale experiments on multiple boxes and ctfs.
 - Additional CTF platform integrations (TryHackMe, CTFd, local containers)
 - Enhanced prompt caching for cost optimization and context engineering for long running workflows
+- Bootstrap functionality for restarting at token treshold, context crunch auto-compact function.
 - Give agent tools
