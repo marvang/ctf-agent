@@ -4,7 +4,6 @@ AI agent that finds and exploits vulnerabilities to solve CTF challenges.
 
 - Autonomous reconnaissance and exploitation
 - HackTheBox VPN support
-- Local (Docker) and remote target support
 - Real-time cost & token tracking
 - Logs each session with timestamps, commands, context, and results
 
@@ -55,7 +54,7 @@ uv sync
 
 ### 4. Configure Environment Variables
 
-Create a `.env` file in the project root.
+Create a file named `.env` in the project root.
 Get an API key from [OpenRouter](https://openrouter.ai/) and add it to your `.env` file.
 Add:
 ```bash
@@ -81,36 +80,6 @@ docker compose build
 # Start the container in detached mode
 docker compose up -d
 ```
-
-## Getting Started
-
-Navigate to your active machine on HackTheBox and download your `.ovpn` VPN configuration file to `ctf-workspace/` folder.
-
-**Start the CTF Agent:**
-```bash
-python main.py
-```
-
-Select environment `2` (local container recommended first time for testing) and then mode `1` (semi-auto recommended first time for testing).
-
-Enter target IP address (find it on the HackTheBox machine page):
-```
-🎯 Target IP: <enter-target-ip>
-```
-
-Optional: Add custom instructions to LLM (e.g., "run a quick scan to start with" or "this challenge has two flags, find both flags before stopping")
-
-The agent will:
-   - Connect to HackTheBox VPN automatically
-   - Begin reconnaissance (nmap scans)
-   - Enumerate services
-   - Exploit vulnerabilities
-   - Extract flags to `./ctf-workspace/flags.txt`
-
-## Project Structure
-
-The `ctf-workspace` directory is shared between your machine and the Docker container
-
 ### Docker Container Management
 
 ```bash
@@ -129,6 +98,29 @@ docker compose build --no-cache
 docker compose logs kali
 ```
 
+## Getting Started
+
+1. Download your `.ovpn` VPN config from HackTheBox Labs to `ctf-workspace/`
+2. Run `python main.py` and wait for VPN connection to establish
+3. Start a machine (e.g., from Starting Point) and copy its IP address
+
+
+Enter target IP address when prompted:
+```
+🎯 Target IP: <enter-target-ip>
+```
+
+Optional: Add custom instructions to LLM (e.g., "run a quick scan to start with" or "this challenge has two flags, find both flags before stopping")
+
+The agent will:
+   - Connect to HackTheBox VPN automatically
+   - Begin reconnaissance (nmap scans)
+   - Enumerate services
+   - Exploit vulnerabilities
+   - Extract flags to `./ctf-workspace/flags.txt`
+
+The `ctf-workspace` folder is shared between your machine and the Docker container.
+
 ## Contributing
 
 Contributions welcome! Areas for improvement:
@@ -140,3 +132,4 @@ Contributions welcome! Areas for improvement:
 - Enhanced prompt caching for cost optimization and context engineering for long running workflows
 - Bootstrap functionality for restarting at token treshold, context crunch auto-compact function.
 - Give agent tools
+- Run agent on local vulnerable containers.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CTF Agent - Main execution script
+CTF Agent - Main script
 """
 
 import os
@@ -63,7 +63,9 @@ def main():
 
     # Display banner and get user selections
     print_banner()
-    use_vpn = prompt_environment_selection()
+    # use_vpn = prompt_environment_selection() # Disabled local container option for now. It was just for testing, always use HTB. TODO: re-enable it with added feature of connecting to local ctf docker containers with vulnerable services.
+    use_vpn = True
+    
     selected_mode = prompt_mode_selection()
 
     # Initialize state

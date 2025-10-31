@@ -13,3 +13,5 @@ ctf-workspace/*.ovpn
 ctf-workspace/vpn.log
 ctf-workspace/flags.txt
 ctf-logs/
+plan.md
+old_prompts.py
