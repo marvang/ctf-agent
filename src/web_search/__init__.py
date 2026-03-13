@@ -1,0 +1,1 @@
+from src.web_search.pipeline import run_web_search_pipeline
