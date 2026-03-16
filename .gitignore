@@ -1,4 +1,3 @@
-# Python-generated files
 __pycache__/
 *.py[oc]
 build/
@@ -9,9 +8,16 @@ wheels/
 .DS_Store
 .uv/
 .venv
-ctf-workspace/*.ovpn
-ctf-workspace/vpn.log
-ctf-workspace/flags.txt
-ctf-logs/
-plan.md
-old_prompts.py
+ctf-workspace/**
+!ctf-workspace/vpn/
+!ctf-workspace/vpn/htb/
+!ctf-workspace/vpn/private/
+!ctf-workspace/vpn/htb/connect-htb.sh
+!ctf-workspace/vpn/htb/disconnect-htb.sh
+!ctf-workspace/vpn/private/vpn-connect.sh
+!ctf-workspace/vpn/private/README.md
+AGENTS.md
+CLAUDE.md
+.claude/
+ctf-experiment-runner/
+results/

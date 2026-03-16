@@ -7,7 +7,6 @@ WORKDIR /app
 # Environment
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
-
 # Ensure CA certs, set official HTTPS mirror, then install
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
@@ -19,6 +18,7 @@ RUN apt-get update && \
         kali-linux-headless \
         python3 \
         python3-pip \
+        sshpass \
         iputils-ping \
         nmap \
         net-tools \
@@ -92,6 +92,5 @@ RUN apt-get update && \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 
-# pspy, powershell and rustscan must be installed separately
 # Default command
 CMD ["/bin/bash"]

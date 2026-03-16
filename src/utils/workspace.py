@@ -1,21 +1,49 @@
 """Workspace management utilities for CTF Agent"""
+import fnmatch
 import os
 import shutil
 from typing import List
 
 
+def _is_approved_path(relative_path: str, approved_patterns: List[str], is_dir: bool) -> bool:
+    """Check whether a workspace-relative path matches an approved pattern."""
+    normalized_path = relative_path.replace(os.sep, "/")
+
+    for pattern in approved_patterns:
+        normalized_pattern = pattern.strip().replace(os.sep, "/")
+        if not normalized_pattern:
+            continue
+
+        if normalized_pattern.endswith("/**"):
+            prefix = normalized_pattern[:-3].rstrip("/")
+            if normalized_path == prefix or normalized_path.startswith(f"{prefix}/"):
+                return True
+
+        if is_dir and normalized_pattern.endswith("/"):
+            prefix = normalized_pattern.rstrip("/")
+            if normalized_path == prefix or normalized_path.startswith(f"{prefix}/"):
+                return True
+
+        if fnmatch.fnmatch(normalized_path, normalized_pattern):
+            return True
+
+    return False
+
+
 def cleanup_workspace(
     workspace_dir: str,
-    approved_files: List[str],
-    files_to_empty: List[str]
+    approved_patterns: List[str],
+    files_to_empty: List[str],
+    auto_confirm: bool = False
 ) -> bool:
     """
     Clean up workspace from previous sessions.
 
     Args:
         workspace_dir: Path to workspace directory
-        approved_files: List of files/patterns to keep (e.g., "*.ovpn", "connect-htb.sh")
+        approved_patterns: Workspace-relative keep rules (supports globs and dir/**)
         files_to_empty: List of files to empty (not delete)
+        auto_confirm: Skip user confirmation and proceed with cleanup (for automated runs)
 
     Returns:
         True if cleanup was performed or approved, False if user cancelled
@@ -24,32 +52,19 @@ def cleanup_workspace(
     if not os.path.exists(workspace_dir):
         return True  # Nothing to clean, continue
 
-    workspace_items = os.listdir(workspace_dir)
+    workspace_items = list(os.scandir(workspace_dir))
 
-    # Filter items to delete (everything not in approved list and not in FILES_TO_EMPTY)
+    # Filter items to delete (everything not in approved patterns and not in files_to_empty)
     items_to_delete = []
-    for item in workspace_items:
-        item_path = os.path.join(workspace_dir, item)
+    for entry in workspace_items:
+        item = entry.name
+        item_path = entry.path
 
         # Skip files that should be emptied instead of deleted
         if item in files_to_empty:
             continue
 
-        # Check if item matches any approved pattern
-        is_approved = False
-        for pattern in approved_files:
-            if pattern.startswith("*"):
-                # Wildcard pattern (e.g., *.ovpn)
-                if item.endswith(pattern[1:]):
-                    is_approved = True
-                    break
-            else:
-                # Exact match
-                if item == pattern:
-                    is_approved = True
-                    break
-
-        if not is_approved:
+        if not _is_approved_path(item, approved_patterns, entry.is_dir(follow_symlinks=False)):
             items_to_delete.append(item_path)
 
     # Check which files to empty exist and have content
@@ -77,7 +92,11 @@ def cleanup_workspace(
             for filename in files_to_empty_list:
                 print(f"   - {filename}")
 
-        wipe_choice = input("\n🧹 Proceed with cleanup? (y/n) [y]: ").strip().lower()
+        if auto_confirm:
+            wipe_choice = "y"
+        else:
+            wipe_choice = input("\n🧹 Proceed with cleanup? (y/n) [y]: ").strip().lower()
+
         if wipe_choice == "" or wipe_choice == "y":
             # Delete unapproved items
             for item_path in items_to_delete:

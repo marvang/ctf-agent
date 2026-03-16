@@ -3,16 +3,7 @@ JSON schema definitions for structured model responses
 """
 
 def get_ctf_response_schema() -> dict:
-    """
-    Get the JSON schema for CTF agent responses.
-
-    This schema enforces that models return a structured response with:
-    - reasoning: The model's thought process
-    - shell_command: The command to execute
-
-    Returns:
-        Dictionary containing the response_format configuration for OpenRouter
-    """
+    """JSON schema enforcing {reasoning, shell_command} responses."""
     return {
         "type": "json_schema",
         "json_schema": {
@@ -31,6 +22,32 @@ def get_ctf_response_schema() -> dict:
                     }
                 },
                 "required": ["reasoning", "shell_command"],
+                "additionalProperties": False
+            }
+        }
+    }
+
+
+def get_protocol_response_schema() -> dict:
+    """JSON schema enforcing {reasoning, protocol} responses."""
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "relay_protocol_response",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "reasoning": {
+                        "type": "string",
+                        "description": "Reasoning and analysis of penetration testing session, chain of thought regarding the protocol generation approach and key decisions"
+                    },
+                    "protocol": {
+                        "type": "string",
+                        "description": "The markdown relay protocol content to be appended to the initial prompt for the next agent"
+                    }
+                },
+                "required": ["reasoning", "protocol"],
                 "additionalProperties": False
             }
         }

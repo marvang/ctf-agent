@@ -1,39 +1,86 @@
-"""Prompt building utilities for LLM initialization"""
-from typing import List, Dict
+"""Prompt building utilities for LLM initialization."""
+
+from typing import Dict, List, Optional
+
 from src.llm_utils import prompts
+from src.utils.environment import EnvironmentType, LocalArch
 
 
 def build_initial_messages(
-    use_vpn: bool,
+    environment_mode: EnvironmentType,
     target_info: str,
-    custom_instructions: str = ""
+    use_chap: bool,
+    custom_instructions: str = "",
+    agent_ips: Optional[dict] = None,
+    local_arch: LocalArch | None = None,
 ) -> List[Dict[str, str]]:
     """
-    Build initial message list for LLM conversation
+    Build initial message list for LLM conversation.
 
     Args:
-        use_vpn: Whether HackTheBox VPN is being used
+        environment_mode: Selected environment mode for the run
         target_info: Target IP address or "Local container"
+        use_chap: Whether CHAP protocol should be used
         custom_instructions: Optional custom user instructions
+        agent_ips: Dict with agent IP addresses (eth0, tun0 if VPN)
 
     Returns:
         List of message dictionaries with 'role' and 'content' keys
     """
-    # Select appropriate system prompt based on environment
-    if use_vpn:
-        system_prompt = prompts.HACKTHEBOX_SYSTEM_PROMPT
-        environment_context = f"Environment: HackTheBox: VPN Connected. This is the only allowed target, The target ip address is: {target_info} "
-    else:
-        system_prompt = prompts.MAIN_SYSTEM_PROMPT
-        environment_context = f"Environment: {target_info} (Local Mode)\\nThis is a local container environment. Explore files and local services."
-
-    # Build initial user prompt with optional custom instructions
-    if custom_instructions:
-        initial_user_prompt = f"{environment_context}\\n\\n{prompts.MAIN_INIT_PROMPT}\\n\\nADDITIONAL CUSTOM INSTRUCTIONS FROM THE TEAM: {custom_instructions}"
-    else:
-        initial_user_prompt = f"{environment_context}\\n\\n{prompts.MAIN_INIT_PROMPT}"
+    system_prompt = prompts.build_system_prompt(
+        environment_mode=environment_mode,
+        local_arch=local_arch,
+        use_chap=use_chap,
+    )
+    initial_user_prompt = prompts.build_initial_user_prompt(
+        environment_mode=environment_mode,
+        target_info=target_info,
+        use_chap=use_chap,
+        custom_instructions=custom_instructions,
+        agent_ips=agent_ips,
+    )
 
     return [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": initial_user_prompt}
+        {"role": "user", "content": initial_user_prompt},
+    ]
+
+
+def build_relay_messages(
+    session: Dict,
+    environment_mode: EnvironmentType,
+    target_info: str,
+    custom_instructions: str = "",
+    agent_ips: Optional[dict] = None,
+    local_arch: LocalArch | None = None,
+) -> List[Dict[str, str]]:
+    """
+    Build fresh message history with accumulated relay protocols injected.
+
+    Args:
+        session: Session object containing relay protocols
+        environment_mode: Selected environment mode for the run
+        target_info: Target IP address
+        custom_instructions: Optional custom user instructions
+        agent_ips: Dict with agent IP addresses (eth0, tun0 if VPN)
+
+    Returns:
+        Fresh message list with protocols injected into initial user message
+    """
+    system_prompt = prompts.build_system_prompt(
+        environment_mode=environment_mode,
+        local_arch=local_arch,
+        use_chap=True,
+    )
+    user_content = prompts.build_relay_user_prompt(
+        session=session,
+        environment_mode=environment_mode,
+        target_info=target_info,
+        custom_instructions=custom_instructions,
+        agent_ips=agent_ips,
+    )
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
     ]

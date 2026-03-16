@@ -2,6 +2,8 @@
 # Universal HackTheBox VPN Disconnection Script
 # Auto-detects OS and adapts commands accordingly
 
+cd "$(dirname "$(realpath "$0")")" || exit 1
+
 # Detect OS
 OS_TYPE=$(uname)
 case "$OS_TYPE" in
@@ -23,7 +25,7 @@ echo "$OS_EMOJI Disconnecting from HackTheBox VPN ($OS_NAME)..."
 
 # Kill OpenVPN processes (without sudo - container has root access)
 if pgrep openvpn > /dev/null; then
-    echo "� Terminating OpenVPN..."
+    echo "🔌 Terminating OpenVPN..."
     pkill -TERM openvpn
     sleep 2
     

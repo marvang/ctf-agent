@@ -4,6 +4,11 @@
 
 set -e
 
+SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+LOG_FILE="$SCRIPT_DIR/.openvpn.log"
+
+cd "$SCRIPT_DIR" || exit 1
+
 # Auto-detect VPN config file
 OVPN_FILES=(*.ovpn)
 OVPN_COUNT=${#OVPN_FILES[@]}
@@ -20,8 +25,6 @@ else
     VPN_CONFIG="${OVPN_FILES[0]}"
     echo "✅ Found VPN config: $VPN_CONFIG"
 fi
-
-LOG_FILE="/ctf-workspace/vpn.log"
 
 # Detect OS
 OS_TYPE=$(uname)

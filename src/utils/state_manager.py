@@ -1,239 +1,284 @@
 """
-State manager for CTF Agent
-Handles shared state between main.py and watcher.py
+State manager for CTF Agent.
+
+`session["events"]` is the canonical replay log.
 """
 
+from __future__ import annotations
+
+import copy
 import json
 import os
-from typing import Optional, Dict, Any
+import tempfile
 from datetime import datetime
-
-# Constants
-STATE_FILE = "./ctf-logs/state.json"
-TOKEN_LOGS_FILE = "./ctf-logs/token_logs.jsonl"
-TOKEN_STATE_FILE = "./ctf-logs/token_state.json"
-SESSIONS_FILE = "./ctf-logs/sessions.json"
+from pathlib import Path
+from typing import Any, Dict, Mapping
 
 
-def ensure_state_dir():
-    """Create state directory if it doesn't exist"""
-    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-
-def init_state(mode: str = "auto"):
-    """Initialize state file with default values"""
-    ensure_state_dir()
-    state = {
-        "mode": mode,  # "auto" or "semi-auto"
-        "flag_found": False,
-        "last_updated": None
-    }
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
-    return state
-
-def get_state() -> dict:
-    """Read current state from file"""
-    ensure_state_dir()
-    if not os.path.exists(STATE_FILE):
-        return init_state()
-
-    try:
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return init_state()
-
-def update_state(mode: Optional[str] = None, flag_found: Optional[bool] = None, target_ip: Optional[str] = None):
-    """Update specific state values"""
-    state = get_state()
-
-    if mode is not None:
-        state["mode"] = mode
-    if flag_found is not None:
-        state["flag_found"] = flag_found
-    if target_ip is not None:
-        state["target_ip"] = target_ip
-
-    import time
-    state["last_updated"] = time.strftime('%Y-%m-%d %H:%M:%S')
-
-    ensure_state_dir()
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
-
-    return state
-
-def get_mode() -> str:
-    """Get current mode"""
-    return get_state().get("mode", "auto")
-
-def set_mode(mode: str):
-    """Set mode (auto or semi-auto)"""
-    update_state(mode=mode)
+def _utc_timestamp() -> str:
+    """Return an RFC3339-like UTC timestamp string."""
+    return datetime.utcnow().isoformat() + "Z"
 
 
-
-# Token tracking functions
-def append_usage_log(usage: Dict[str, Any], model: str) -> None:
-    """Append usage data to logs file (JSONL format)."""
-    ensure_state_dir()
-    log_entry = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "model": model,
-        "input_tokens": usage.get("prompt_tokens", 0),
-        "output_tokens": usage.get("completion_tokens", 0),
-        "reasoning_tokens": usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0),
-        "total_tokens": usage.get("total_tokens", 0),
-        "cost": usage.get("cost", 0.0),
-    }
-    with open(TOKEN_LOGS_FILE, "a") as f:
-        f.write(json.dumps(log_entry) + "\n")
+def _copy_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a detached copy of a mapping suitable for JSON serialization."""
+    return copy.deepcopy(dict(value))
 
 
-def load_token_state() -> Dict[str, Any]:
-    """Load current token state from state file. State is tracked per model."""
-    ensure_state_dir()
-    if not os.path.exists(TOKEN_STATE_FILE):
-        return {"models": {}}
-
-    try:
-        with open(TOKEN_STATE_FILE, "r") as f:
-            state = json.load(f)
-    except (json.JSONDecodeError, ValueError):
-        return {"models": {}}
-
-    if "models" not in state:
-        return {"models": {}}
-
-    return state
-
-
-def save_token_state(state: Dict[str, Any]) -> None:
-    """Save token state to state file."""
-    ensure_state_dir()
-    with open(TOKEN_STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
-
-
-def update_token_state(usage: Dict[str, Any], model: str) -> Dict[str, Any]:
-    """Update running totals per model and save state."""
-    state = load_token_state()
-
-    if model not in state["models"]:
-        state["models"][model] = {
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "total_reasoning_tokens": 0,
-            "total_tokens": 0,
-            "total_cost": 0.0,
-            "request_count": 0,
-        }
-
-    model_state = state["models"][model]
-    model_state["total_input_tokens"] += usage.get("prompt_tokens", 0)
-    model_state["total_output_tokens"] += usage.get("completion_tokens", 0)
-    model_state["total_reasoning_tokens"] += usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
-    model_state["total_tokens"] += usage.get("total_tokens", 0)
-    model_state["total_cost"] += usage.get("cost", 0.0)
-    model_state["request_count"] += 1
-
-    save_token_state(state)
-    return model_state
-
-
-def get_model_token_state(model: str) -> Dict[str, Any]:
-    """Get token state for a specific model."""
-    state = load_token_state()
-    return state["models"].get(model, {
-        "total_input_tokens": 0,
-        "total_output_tokens": 0,
-        "total_reasoning_tokens": 0,
-        "total_tokens": 0,
-        "total_cost": 0.0,
-        "request_count": 0,
-    })
-
-
-# Session tracking functions
-def create_session(model: str, mode: str) -> Dict[str, Any]:
+def create_session(model: str, chap_enabled: bool = False) -> Dict[str, Any]:
     """Create a new session with unique ID and initial state."""
     import uuid
+
     session = {
+        "schema_version": 2,
         "id": str(uuid.uuid4()),
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": _utc_timestamp(),
         "model": model,
-        "mode": mode,
-        "commands": [],
-        "token_usage": {
-            "input_tokens": 0,
-            "output_tokens": 0,
+        "events": [],
+        "context": {},
+        "metrics": {
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
             "total_tokens": 0,
-            "total_cost": 0.0
-        }
+            "total_reasoning_tokens": 0,
+            "total_cached_tokens": 0,
+            "total_audio_tokens": 0,
+            "total_cost": 0.0,
+            "total_upstream_inference_cost": 0.0,
+            "total_iterations": 0,
+            "total_time": 0.0,
+        },
+        "chap_enabled": chap_enabled,
+        "agent_number": 0,
+        "relay_protocols": [],
+        "relay_triggers": [],
     }
     return session
 
 
+def set_session_context(session: Dict[str, Any], **context: Any) -> None:
+    """Store replay and artifact metadata on the session."""
+    session.setdefault("context", {})
+    for key, value in context.items():
+        if value is not None:
+            session["context"][key] = value
+
+
 def update_session_tokens(session: Dict[str, Any], usage: Dict[str, Any]) -> None:
     """Update session token usage with new usage data."""
-    session["token_usage"]["input_tokens"] += usage.get("prompt_tokens", 0)
-    session["token_usage"]["output_tokens"] += usage.get("completion_tokens", 0)
-    session["token_usage"]["total_tokens"] += usage.get("total_tokens", 0)
-    session["token_usage"]["total_cost"] += usage.get("cost", 0.0)
+    session["metrics"]["total_input_tokens"] += usage.get("prompt_tokens") or 0
+    session["metrics"]["total_output_tokens"] += usage.get("completion_tokens") or 0
+    session["metrics"]["total_tokens"] += usage.get("total_tokens") or 0
+    session["metrics"]["total_reasoning_tokens"] += (
+        usage.get("completion_tokens_details", {}).get("reasoning_tokens") or 0
+    )
+    session["metrics"]["total_cached_tokens"] += (
+        usage.get("prompt_tokens_details", {}).get("cached_tokens") or 0
+    )
+    session["metrics"]["total_audio_tokens"] += (
+        usage.get("prompt_tokens_details", {}).get("audio_tokens") or 0
+    )
+    session["metrics"]["total_cost"] += usage.get("cost") or 0.0
+    session["metrics"]["total_upstream_inference_cost"] += (
+        usage.get("cost_details", {}).get("upstream_inference_cost") or 0.0
+    )
 
 
-def add_session_command(session: Dict[str, Any], command: str, output: str, exit_code: int, reasoning: str = "") -> None:
-    """Add a command, its output, and reasoning to the session."""
-    session["commands"].append({
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "reasoning": reasoning,
-        "command": command,
-        "output": output,
-        "exit_code": exit_code
-    })
+def build_assistant_message(reasoning: str, shell_command: str) -> dict[str, str]:
+    """Build the assistant message shape stored in the replay log."""
+    return {
+        "role": "assistant",
+        "content": json.dumps({"reasoning": reasoning, "shell_command": shell_command}),
+    }
 
 
-def save_session(session: Dict[str, Any]) -> None:
-    """Save session to sessions file, including any generated report."""
-    ensure_state_dir()
+def append_session_event(
+    session: Dict[str, Any],
+    *,
+    stream: str,
+    tag: str,
+    message: Mapping[str, Any] | None = None,
+    parsed: Mapping[str, Any] | None = None,
+    iteration: int | None = None,
+    agent_number: int | None = None,
+    model_name: str | None = None,
+    usage: Mapping[str, Any] | None = None,
+    metadata: Mapping[str, Any] | None = None,
+    session_path: str | Path | None = None,
+) -> Dict[str, Any]:
+    """Append a replay event and optionally flush the session checkpoint."""
+    events = session.setdefault("events", [])
+    event: Dict[str, Any] = {
+        "event_index": len(events),
+        "timestamp": _utc_timestamp(),
+        "stream": stream,
+        "tag": tag,
+        "agent_number": session.get("agent_number", 0) if agent_number is None else agent_number,
+        "model_name": session.get("model", "") if model_name is None else model_name,
+    }
+    if iteration is not None:
+        event["iteration"] = iteration
+    if message is not None:
+        event["message"] = _copy_mapping(message)
+    if parsed is not None:
+        event["parsed"] = _copy_mapping(parsed)
+    if usage is not None:
+        event["usage"] = _copy_mapping(usage)
+    if metadata is not None:
+        event["metadata"] = _copy_mapping(metadata)
 
-    # Check for generated report in workspace
-    report_path = "./ctf-workspace/reports.txt"
-    if os.path.exists(report_path):
-        try:
-            with open(report_path, "r", encoding="utf-8") as f:
-                report_content = f.read().strip()
-                if report_content:
-                    session["report"] = report_content
-        except Exception as e:
-            print(f"⚠️  Could not read report file: {e}")
-
-    # Load existing sessions
-    if os.path.exists(SESSIONS_FILE):
-        try:
-            with open(SESSIONS_FILE, "r") as f:
-                sessions = json.load(f)
-        except (json.JSONDecodeError, ValueError):
-            sessions = []
-    else:
-        sessions = []
-
-    # Append new session
-    sessions.append(session)
-
-    # Save back to file
-    with open(SESSIONS_FILE, "w") as f:
-        json.dump(sessions, f, indent=2)
+    events.append(event)
+    if session_path is not None:
+        persist_session(session, session_path)
+    return event
 
 
-def get_all_sessions() -> list:
-    """Get all saved sessions."""
-    ensure_state_dir()
-    if not os.path.exists(SESSIONS_FILE):
-        return []
+def increment_agent_number(session: Dict[str, Any]) -> None:
+    """Increment the agent number for relay handoff."""
+    session["agent_number"] += 1
 
+
+def add_relay_protocol(session: Dict[str, Any], protocol: Dict[str, Any]) -> None:
+    """Add a relay protocol to the session's protocol list."""
+    session.setdefault("relay_protocols", []).append(protocol)
+
+
+def get_current_agent_tokens(session: Dict[str, Any]) -> int:
+    """
+    Calculate tokens used by current agent only (excluding previous relays).
+
+    Args:
+        session: Session object containing metrics and relay protocols
+
+    Returns:
+        Token count for current agent since last relay (or session start)
+    """
+    current_total = session["metrics"]["total_tokens"]
+
+    if not session.get("relay_protocols"):
+        return current_total
+
+    last_protocol = session["relay_protocols"][-1]
+    tokens_at_last_relay = last_protocol["metrics"]["snapshot_total_tokens"]
+    return current_total - tokens_at_last_relay
+
+
+def persist_session(session: Dict[str, Any], session_path: str | Path) -> None:
+    """Atomically persist the current session checkpoint to disk."""
+    path = Path(session_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    fd, temp_path = tempfile.mkstemp(prefix=f"{path.name}.", suffix=".tmp", dir=str(path.parent))
     try:
-        with open(SESSIONS_FILE, "r") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, ValueError):
-        return []
+        with os.fdopen(fd, "w") as handle:
+            json.dump(session, handle, indent=2)
+        os.replace(temp_path, path)
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+
+def _context_value(
+    session: Mapping[str, Any],
+    key: str,
+    override: Any,
+) -> Any:
+    """Resolve an artifact field from an override or stored session context."""
+    if override is not None:
+        return override
+    context = session.get("context", {})
+    if isinstance(context, Mapping):
+        return context.get(key)
+    return None
+
+
+def _coerce_bool(value: Any) -> bool:
+    """Normalize JSON-ish booleans, including legacy string values."""
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+    return bool(value)
+
+
+def build_used_prompts_payload(
+    session: Mapping[str, Any],
+    *,
+    mode: str,
+    experiment_id: str | None = None,
+    challenge_name: str | None = None,
+    model_name: str | None = None,
+    chap_enabled: bool | None = None,
+    chap_auto_trigger: bool | None = None,
+    environment_mode: str | None = None,
+    target_ip: str | None = None,
+) -> dict[str, Any]:
+    """Build the legacy `used_prompts.json` payload from canonical events."""
+    events = session.get("events", [])
+    if not isinstance(events, list) or not events:
+        raise ValueError("Session does not contain replay events")
+
+    resolved_experiment_id = _context_value(session, "experiment_id", experiment_id)
+    resolved_challenge_name = _context_value(session, "challenge_name", challenge_name)
+    resolved_model_name = _context_value(session, "model_name", model_name) or session.get("model")
+    resolved_chap_enabled = _context_value(session, "chap_enabled", chap_enabled)
+    if resolved_chap_enabled is None:
+        resolved_chap_enabled = session.get("chap_enabled")
+    resolved_chap_auto_trigger = _context_value(session, "chap_auto_trigger", chap_auto_trigger)
+    resolved_environment_mode = _context_value(session, "environment_mode", environment_mode)
+    resolved_target_ip = _context_value(session, "target_ip", target_ip)
+    chap_enabled_value = _coerce_bool(resolved_chap_enabled)
+    if chap_enabled_value and resolved_chap_auto_trigger is None:
+        raise ValueError("CHAP-enabled session is missing chap_auto_trigger metadata")
+    chap_auto_trigger_value = _coerce_bool(resolved_chap_auto_trigger)
+
+    system_prompt = None
+    initial_messages: list[dict[str, Any]] = []
+    protocol_generator_system_prompt = None
+    relay_initial_messages: list[dict[str, Any]] = []
+
+    for event in events:
+        tag = event.get("tag")
+        message = event.get("message")
+        if not isinstance(message, Mapping):
+            continue
+
+        if tag == "initial_system_prompt" and system_prompt is None:
+            system_prompt = message.get("content")
+        elif tag == "initial_user_prompt":
+            initial_messages.append(_copy_mapping(message))
+        elif tag == "protocol_generator_system_prompt_template" and protocol_generator_system_prompt is None:
+            protocol_generator_system_prompt = message.get("content")
+        elif tag == "protocol_request_system_prompt" and protocol_generator_system_prompt is None:
+            protocol_generator_system_prompt = message.get("content")
+        elif tag == "relay_user_prompt":
+            relay_number = None
+            metadata = event.get("metadata")
+            if isinstance(metadata, Mapping):
+                relay_number = metadata.get("relay_number")
+            relay_initial_messages.append(
+                {
+                    "relay_number": relay_number,
+                    "user_content": message.get("content"),
+                }
+            )
+
+    prompt_payload = {
+        "experiment_id": resolved_experiment_id,
+        "challenge_name": resolved_challenge_name,
+        "model_name": resolved_model_name,
+        "chap_enabled": chap_enabled_value,
+        "chap_auto_trigger": chap_auto_trigger_value,
+        "system_prompt": system_prompt,
+        "initial_messages": initial_messages,
+    }
+
+    if mode == "interactive":
+        prompt_payload["environment_mode"] = resolved_environment_mode
+        prompt_payload["target_ip"] = resolved_target_ip
+
+    if chap_enabled_value:
+        if protocol_generator_system_prompt is not None:
+            prompt_payload["protocol_generator_system_prompt"] = protocol_generator_system_prompt
+        prompt_payload["relay_initial_messages"] = relay_initial_messages
+
+    return prompt_payload
+

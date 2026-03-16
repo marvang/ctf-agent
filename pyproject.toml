@@ -1,11 +1,16 @@
 [project]
-name = "ctf-agent"
+name = "chap"
 version = "0.1.0"
-description = "Add your description here"
+description = "CHAP - Context Handoff for Autonomous Penetration Testing"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "ipykernel>=6.30.1",
     "docker>=7.0.0",
-    "dotenv>=0.9.9",
+    "python-dotenv>=0.9.9",
+    "discord-py>=2.6.4",
+    "pyyaml>=6.0.3",
+    "cryptography>=46.0.3",
+    "matplotlib>=3.10.7",
+    "numpy>=2.2.6",
 ]
