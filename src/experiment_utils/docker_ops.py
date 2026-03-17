@@ -57,6 +57,73 @@ def start_container(vm_name: str, compose_file: str | Path = LOCAL_CHALLENGES_CO
     return ip
 
 
+def start_challenge_container_standalone(
+    challenge_name: str,
+    container_name: str,
+    network_name: str,
+    image: str | None = None,
+    target_ip: str | None = None,
+) -> str:
+    """Start a challenge container directly via ``docker run`` (no compose).
+
+    This enables dynamic naming for parallel sessions.  Returns the IP
+    address that the challenge container was assigned (either *target_ip* when
+    given, or the address auto-assigned by Docker).
+    """
+    if image is None:
+        image = challenge_name
+
+    # Remove stale container with the same name, if any.
+    subprocess.run(
+        ["docker", "rm", "-f", container_name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    cmd: list[str] = [
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        container_name,
+        "--network",
+        network_name,
+    ]
+    if target_ip:
+        cmd += ["--ip", target_ip]
+    cmd.append(image)
+
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+    if target_ip:
+        return target_ip
+
+    # Inspect the container to discover the assigned IP.
+    inspect = subprocess.run(
+        [
+            "docker",
+            "inspect",
+            "-f",
+            f"{{{{.NetworkSettings.Networks.{network_name}.IPAddress}}}}",
+            container_name,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return inspect.stdout.strip()
+
+
+def stop_challenge_container_standalone(container_name: str) -> str:
+    """Force-remove a standalone challenge container."""
+    subprocess.run(
+        ["docker", "rm", "-f", container_name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return f"{container_name} removed"
+
+
 def stop_container(vm_name: str) -> str:
     """Remove a single local challenge container."""
     container_name = get_local_challenge_container_name(vm_name)
@@ -93,6 +160,60 @@ def start_kali_container(container_name: str = _DEFAULT_KALI_NAME) -> bool:
             text=True,
         )
         print(f"✅ {container_name} started")
+        return True
+    except subprocess.CalledProcessError as err:
+        print(f"❌ Failed to start {container_name}: {err}")
+        return False
+
+
+def start_kali_container_standalone(
+    container_name: str,
+    network_name: str,
+    image: str = "ctf-agent-kali",
+) -> bool:
+    """Start a Kali container via ``docker run`` (no compose).
+
+    Uses the same capabilities as docker-compose.yml but allows a dynamic
+    container name and network, enabling parallel sessions.
+    """
+    try:
+        # Remove stale container with the same name, if any.
+        subprocess.run(
+            ["docker", "rm", "-f", container_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        print(f"🔄 Starting {container_name} (standalone)...")
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                container_name,
+                "--network",
+                network_name,
+                "--cap-drop=ALL",
+                "--cap-add=NET_ADMIN",
+                "--cap-add=NET_RAW",
+                "--cap-add=NET_BIND_SERVICE",
+                "--cap-add=SETUID",
+                "--cap-add=SETGID",
+                "--cap-add=CHOWN",
+                "--cap-add=DAC_OVERRIDE",
+                "--device=/dev/net/tun:/dev/net/tun",
+                "--device-cgroup-rule=c 10:200 rwm",
+                "-w",
+                "/ctf-workspace",
+                "-t",
+                image,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(f"✅ {container_name} started (standalone)")
         return True
     except subprocess.CalledProcessError as err:
         print(f"❌ Failed to start {container_name}: {err}")

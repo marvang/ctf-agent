@@ -16,6 +16,7 @@ synced between both files.
 
 """
 
+import argparse
 import json
 import os
 import subprocess
@@ -32,6 +33,9 @@ from src.config.constants import (
     LOCAL_CHALLENGES_NETWORK_NAME,
     MAX_EMPTY_COMMAND_RETRIES,
     MAX_OUTPUT_LENGTH,
+    get_session_kali_name,
+    get_session_network_name,
+    get_session_subnet_from_id,
 )
 from src.config.workspace import (
     WORKSPACE_DIR,
@@ -42,6 +46,7 @@ from src.config.workspace import (
 from src.experiment_utils.docker_ops import (
     start_container,
     start_kali_container,
+    start_kali_container_standalone,
     start_network,
     stop_container,
     stop_kali_container,
@@ -99,7 +104,10 @@ LOCAL_CTF_STARTUP_DELAY_SECONDS = 30
 LOCAL_CTF_NETWORK_NAME = LOCAL_CHALLENGES_NETWORK_NAME
 
 
-def ensure_kali_container_running(kali_container_name: str = KALI_CONTAINER_NAME):
+def ensure_kali_container_running(
+    kali_container_name: str = KALI_CONTAINER_NAME,
+    network_name: str = LOCAL_CHALLENGES_NETWORK_NAME,
+):
     """Connect to the Kali container, starting it first if required."""
     _, container = connect_to_docker(kali_container_name=kali_container_name)
     if container is not None:
@@ -108,10 +116,10 @@ def ensure_kali_container_running(kali_container_name: str = KALI_CONTAINER_NAME
     if container is None or container.status != "running":
         print(f"\n🔄 Docker container '{kali_container_name}' is not running. Starting it now...")
         try:
-            print(f"🌐 Ensuring Docker network '{LOCAL_CTF_NETWORK_NAME}' is available...")
-            start_network()
+            print(f"🌐 Ensuring Docker network '{network_name}' is available...")
+            start_network(network_name)
         except Exception as exc:
-            print(f"❌ Failed to prepare Docker network '{LOCAL_CTF_NETWORK_NAME}': {exc}")
+            print(f"❌ Failed to prepare Docker network '{network_name}': {exc}")
             return None
 
         if not start_kali_container(kali_container_name):
@@ -284,7 +292,33 @@ def save_interactive_results(
     print(f"💾 Results saved to {session_dir}")
 
 
+def _parse_main_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="CTF Agent - Interactive Mode")
+    parser.add_argument(
+        "--session-id",
+        type=str,
+        default=None,
+        help="Session ID for container/network isolation (enables parallel runs)",
+    )
+    return parser.parse_args()
+
+
 def main():
+    # Parse CLI args
+    cli_args = _parse_main_args()
+    session_id: str | None = cli_args.session_id
+    use_session_isolation = session_id is not None
+
+    # Resolve container/network names based on session isolation
+    if use_session_isolation:
+        kali_container_name = get_session_kali_name(session_id)
+        session_network_name = get_session_network_name(session_id)
+        session_subnet = get_session_subnet_from_id(session_id)
+    else:
+        kali_container_name = KALI_CONTAINER_NAME
+        session_network_name = LOCAL_CHALLENGES_NETWORK_NAME
+        session_subnet = None  # use default
+
     # Register signal handler for graceful shutdown
     register_signal_handler()
     # Load environment variables
@@ -292,6 +326,10 @@ def main():
 
     # Display banner and get user selections
     print_banner()
+    if use_session_isolation:
+        print(f"Session ID: {session_id}")
+        print(f"Kali container: {kali_container_name}")
+        print(f"Network: {session_network_name}")
     environment_mode, vpn_environment = prompt_environment_selection()
     local_arch: LocalArch | None = None
     if environment_mode == "local":
@@ -322,8 +360,8 @@ def main():
         if environment_mode == "local":
             if challenge_name:
                 stop_local_challenge(challenge_name)
-            stop_kali_container(KALI_CONTAINER_NAME)
-            remove_local_network_if_unused()
+            stop_kali_container(kali_container_name)
+            remove_local_network_if_unused(session_network_name)
 
     set_cleanup_callback(cleanup_on_exit)
 
@@ -338,6 +376,9 @@ def main():
         return
 
     # Clean up workspace files from previous sessions
+    # NOTE: For true parallel safety with --session-id, each session should use
+    # an isolated workspace (e.g. ./ctf-workspace-{session_id}/). The current
+    # shared ./ctf-workspace directory risks flag contamination between sessions.
     if not cleanup_workspace(
         WORKSPACE_DIR,
         approved_workspace_patterns,
@@ -352,8 +393,11 @@ def main():
             return
 
         try:
-            print("\n🌐 Ensuring Docker network is available...")
-            start_network()
+            print(f"\n🌐 Ensuring Docker network '{session_network_name}' is available...")
+            if session_subnet:
+                start_network(session_network_name, session_subnet)
+            else:
+                start_network(session_network_name)
 
             print(f"\n🧹 Resetting local challenge: {challenge_name}")
             stop_local_challenge(challenge_name, quiet=True)
@@ -372,7 +416,15 @@ def main():
 
         target_info = f"{challenge_name} ({target_ip})"
 
-    container = ensure_kali_container_running(KALI_CONTAINER_NAME)
+    if use_session_isolation:
+        # Standalone mode: start Kali via docker run for dynamic naming, then
+        # connect directly (no need for the ensure helper's own startup path).
+        if not start_kali_container_standalone(kali_container_name, session_network_name):
+            cleanup_on_exit()
+            return
+        _, container = connect_to_docker(kali_container_name=kali_container_name)
+    else:
+        container = ensure_kali_container_running(kali_container_name, session_network_name)
     if container is None:
         cleanup_on_exit()
         return

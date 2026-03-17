@@ -18,16 +18,26 @@ from datetime import datetime
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.config.constants import KALI_CONTAINER_NAME, LOCAL_CHALLENGES_ROOT_STR
+from src.config.constants import (
+    KALI_CONTAINER_NAME,
+    LOCAL_CHALLENGES_ROOT_STR,
+    get_session_challenge_name,
+    get_session_kali_name,
+    get_session_network_name,
+    get_session_subnet_from_id,
+)
 from src.config.experiment_custom_instructions import (
     DEFAULT_CUSTOM_INSTRUCTIONS,
     REAL_CHALLENGE_CUSTOM_INSTRUCTIONS,
     TEST_CHALLENGE_CUSTOM_INSTRUCTIONS,
 )
 from src.experiment_utils.docker_ops import (
+    start_challenge_container_standalone,
     start_container,
     start_kali_container,
+    start_kali_container_standalone,
     start_network,
+    stop_challenge_container_standalone,
     stop_container,
     stop_kali_container,
     stop_network,
@@ -141,6 +151,14 @@ def parse_args():
         help="Disable auto-trigger, only agent-initiated relay allowed",
     )
     parser.set_defaults(auto_trigger=None)  # None means use file default
+
+    # Session isolation
+    parser.add_argument(
+        "--session-id",
+        type=str,
+        default=None,
+        help="Session ID for container/network isolation (optional, enables parallel runs)",
+    )
 
     return parser.parse_args()
 
@@ -258,6 +276,18 @@ def main():
     args = parse_args()
     apply_cli_overrides(args)
 
+    # Session isolation: resolve container/network names
+    session_id: str | None = args.session_id
+    use_session_isolation = session_id is not None
+    if use_session_isolation:
+        kali_name = get_session_kali_name(session_id)
+        network_name = get_session_network_name(session_id)
+        subnet = get_session_subnet_from_id(session_id)
+    else:
+        kali_name = KALI_CONTAINER_NAME
+        network_name = None  # use defaults
+        subnet = None
+
     print("=" * 80)
     print("CTF EXPERIMENT SUITE")
     print("=" * 80)
@@ -270,10 +300,17 @@ def main():
     print(f"Max iterations: {MAX_ITERATIONS}")
     print(f"Max cost per challenge: ${MAX_COST}")
     print(f"Experiment name: {EXPERIMENT_SET_NAME}")
+    if use_session_isolation:
+        print(f"Session ID: {session_id}")
+        print(f"Kali container: {kali_name}")
+        print(f"Network: {network_name}")
     print("=" * 80)
 
     print("\n🌐 Ensuring Docker network is available...")
-    start_network()
+    if use_session_isolation:
+        start_network(network_name, subnet)
+    else:
+        start_network()
 
     results = []
     experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -310,12 +347,24 @@ def main():
             print(f"Challenge {idx}/{total_challenges}: {challenge}")
             print(f"{'=' * 80}")
 
+            # Resolve session-scoped challenge container name
+            challenge_container = (
+                get_session_challenge_name(challenge, session_id) if use_session_isolation else challenge
+            )
+
             send_challenge_start_message(channel_id=channel_id, challenge=challenge, index=idx, total=total_challenges)
 
             try:
                 # Start vulnerable container
                 print(f"\n📦 Starting vulnerable container: {challenge}")
-                target_ip = start_container(challenge)
+                if use_session_isolation:
+                    target_ip = start_challenge_container_standalone(
+                        challenge_name=challenge,
+                        container_name=challenge_container,
+                        network_name=network_name,
+                    )
+                else:
+                    target_ip = start_container(challenge)
                 print(f"✅ Container started at {target_ip}")
 
                 current_time = datetime.now().strftime("%H:%M:%S %Y-%m-%d")
@@ -325,10 +374,15 @@ def main():
                 time.sleep(SERVICE_STARTUP_DELAY)
                 print("✅ Proceeding with challenge")
 
-                if not start_kali_container(KALI_CONTAINER_NAME):
+                if use_session_isolation:
+                    kali_ok = start_kali_container_standalone(kali_name, network_name)
+                else:
+                    kali_ok = start_kali_container(kali_name)
+
+                if not kali_ok:
                     send_docker_connection_error_message(
                         channel_id=channel_id,
-                        container_name=KALI_CONTAINER_NAME,
+                        container_name=kali_name,
                         context={"challenge": challenge, "experiment_id": experiment_id},
                     )
                     raise Exception("Failed to start Kali container")
@@ -378,7 +432,7 @@ def main():
                     chap_token_limit_base=CHAP_TOKEN_LIMIT_BASE,
                     chap_token_limit_increment=CHAP_TOKEN_LIMIT_INCREMENT,
                     chap_min_iterations_for_relay=CHAP_MIN_ITERATIONS_FOR_RELAY,
-                    kali_container_name=KALI_CONTAINER_NAME,
+                    kali_container_name=kali_name,
                     custom_instructions=get_custom_instructions_for_challenge(challenge),
                     channel_id=channel_id,
                     local_arch=LOCAL_ARCH,
@@ -450,9 +504,12 @@ def main():
 
             finally:
                 print("\n🧹 Cleaning up...")
-                stop_kali_container(KALI_CONTAINER_NAME)
+                stop_kali_container(kali_name)
                 print(f"🧹 Stopping vulnerable container: {challenge}")
-                stop_container(challenge)
+                if use_session_isolation:
+                    stop_challenge_container_standalone(challenge_container)
+                else:
+                    stop_container(challenge)
 
             save_results(results, results_dir, experiment_dir, experiment_id, termination_reason)
 
@@ -512,7 +569,10 @@ def main():
         )
 
     print("\n🛑 Stopping Docker network...")
-    stop_network()
+    if use_session_isolation:
+        stop_network(network_name)
+    else:
+        stop_network()
     print("Exit.")
 
 

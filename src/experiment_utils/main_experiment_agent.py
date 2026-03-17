@@ -132,6 +132,9 @@ def run_experiment_agent(
     except RuntimeError as exc:
         return _error_result(str(exc), "workspace_config_error")
 
+    # NOTE: For true parallel safety with --session-id, each session should use
+    # an isolated workspace (e.g. ./ctf-workspace-{session_id}/). The current
+    # shared ./ctf-workspace directory risks flag contamination between sessions.
     if not cleanup_workspace(
         WORKSPACE_DIR,
         approved_workspace_patterns,
