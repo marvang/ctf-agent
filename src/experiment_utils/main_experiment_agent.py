@@ -17,7 +17,7 @@ from src.config.workspace import (
     load_workspace_approved_patterns,
     read_captured_flag,
 )
-from src.llm_utils.openrouter import call_openrouter_with_history, parse_llm_error
+from src.llm_utils.openrouter import call_openrouter_with_history, call_openrouter_with_history_pty, parse_llm_error
 from src.llm_utils.prompt_builder import build_initial_messages
 from src.utils.discord_utils import (
     send_auto_relay_message,
@@ -79,6 +79,7 @@ def run_experiment_agent(
     channel_id: str | None = None,
     local_arch: LocalArch = "aarch64",
     session_path: str | None = None,
+    use_pty: bool = False,
 ) -> dict[str, Any]:
     """
     Run CTF agent in experiment mode (no user interaction)
@@ -159,6 +160,7 @@ def run_experiment_agent(
         custom_instructions=custom_instructions,
         agent_ips=agent_ips,
         local_arch=local_arch,
+        use_pty=use_pty,
     )
 
     set_session_context(
@@ -198,6 +200,13 @@ def run_experiment_agent(
             session_path=session_path,
         )
 
+    # PTY session manager (opt-in)
+    pty_manager = None
+    if use_pty:
+        from src.utils.pty_session import PtySessionManager
+
+        pty_manager = PtySessionManager(container_name=kali_container_name)
+
     iteration = 0
     relay = 0
     last_relay_iteration = 0
@@ -234,11 +243,20 @@ def run_experiment_agent(
             stopping_reason = "iteration_limit"
             break
 
+        stdin_input = ""
         try:
-            reasoning, shell_command, usage, extended_reasoning = call_openrouter_with_history(
-                messages=messages,
-                model_name=model_name,
-            )
+            if use_pty:
+                reasoning, shell_command, stdin_input, usage, extended_reasoning = (
+                    call_openrouter_with_history_pty(
+                        messages=messages,
+                        model_name=model_name,
+                    )
+                )
+            else:
+                reasoning, shell_command, usage, extended_reasoning = call_openrouter_with_history(
+                    messages=messages,
+                    model_name=model_name,
+                )
         except Exception as e:
             print(f"❌ LLM API error: {e}")
             llm_error_details = parse_llm_error(e)
@@ -267,6 +285,8 @@ def run_experiment_agent(
             print(f"\n💭 Internal Reasoning:\n<thinking>\n{display_extended}\n</thinking>")
         print(f"\n🧠 Reasoning: {reasoning}")
         print(f"\n💻 Command: {shell_command}")
+        if use_pty and stdin_input:
+            print(f"⌨️  stdin: {stdin_input}")
 
         prompt_tokens = 0
         token_limit_for_agent = 0
@@ -514,17 +534,37 @@ def run_experiment_agent(
             chap_80_percent_warning_shown = False
             continue
 
-        print("\n🤖 Executing...")
-        success, output, exit_code = execute_command(container, shell_command, command_timeout_seconds)
+        if use_pty and pty_manager is not None:
+            from src.utils.pty_session import dispatch_pty_command, resolve_pty_fields
 
-        llm_output = truncate_output(output, max_output_length)
+            shell_command, stdin_input = resolve_pty_fields(shell_command, stdin_input)
 
-        print("\n📤 Output:")
-        print(llm_output)
-        if not success:
-            print(f"⚠️  Exit code: {exit_code}")
+            print("\n🤖 Executing (PTY)...")
+            exec_start = time.time()
+            output, process_exited, exit_code = dispatch_pty_command(
+                pty_manager, shell_command, stdin_input
+            )
+            wall_time = time.time() - exec_start
+            llm_output = truncate_output(output, max_output_length)
 
-        result_content = f"Command executed with exit code {exit_code}. Output:\n{llm_output}"
+            print("\n📤 Output:")
+            print(llm_output)
+
+            status_line = f"[Process exited (code {exit_code})]" if process_exited else "[Process running]"
+            result_content = f"{status_line} Wall time: {wall_time:.1f}s\nOutput:\n{llm_output}"
+            success = (exit_code == 0) if exit_code is not None else (not process_exited)
+        else:
+            print("\n🤖 Executing...")
+            success, output, exit_code = execute_command(container, shell_command, command_timeout_seconds)
+
+            llm_output = truncate_output(output, max_output_length)
+
+            print("\n📤 Output:")
+            print(llm_output)
+            if not success:
+                print(f"⚠️  Exit code: {exit_code}")
+
+            result_content = f"Command executed with exit code {exit_code}. Output:\n{llm_output}"
 
         # Show CHAP 80% warning ONCE when threshold is crossed
         if chap_enabled and token_limit_for_agent > 0:
@@ -556,6 +596,9 @@ def run_experiment_agent(
         session["metrics"]["total_iterations"] = iteration
         if session_path:
             persist_session(session, session_path)
+
+    if pty_manager is not None:
+        pty_manager.cleanup()
 
     session["metrics"]["total_time"] = time.time() - session_start_time
     if session_path:

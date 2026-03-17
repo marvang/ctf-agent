@@ -17,5 +17,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pexpect>=4.9.0",
     "ruff>=0.15.6",
 ]

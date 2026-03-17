@@ -155,6 +155,45 @@ def _extract_openrouter_message_fields(data: dict) -> tuple[str, str]:
     return json.dumps(content), reasoning
 
 
+def _parse_json_fields(content: str, fields: list[str]) -> dict[str, str] | None:
+    """Try multiple strategies to extract named fields from LLM response content.
+
+    Returns a dict of extracted fields if parsing succeeds and 'reasoning' is non-empty,
+    or None if all strategies fail.
+    """
+
+    def _try_extract(text: str) -> dict[str, str] | None:
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        result = {f: parsed.get(f, "") for f in fields}
+        if result.get("reasoning"):
+            return result
+        return None
+
+    # Strategy 1: Pure JSON
+    result = _try_extract(content)
+    if result is not None:
+        return result
+
+    # Strategy 2: JSON inside markdown code blocks
+    for match in re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL):
+        result = _try_extract(match)
+        if result is not None:
+            return result
+
+    # Strategy 3: Bare JSON object containing "reasoning"
+    for match in re.findall(r'\{[^{}]*"reasoning"[^{}]*\}', content, re.DOTALL):
+        result = _try_extract(match)
+        if result is not None:
+            return result
+
+    return None
+
+
 def call_openrouter_with_history(messages: list, model_name: str) -> tuple[str, str, dict[str, Any], str]:
     """
     Call OpenRouter API with full message history for context-aware responses.
@@ -167,64 +206,35 @@ def call_openrouter_with_history(messages: list, model_name: str) -> tuple[str, 
         Tuple of (reasoning, shell_command, usage, extended_reasoning) parsed from LLM response
     """
     data = _call_openrouter_api(messages, model_name, get_ctf_response_schema())
-
     content, extended_reasoning = _extract_openrouter_message_fields(data)
-
-    # Parse JSON response - try multiple strategies
-    reasoning = ""
-    shell_command = ""
-
-    # Strategy 1: Try to parse as pure JSON
-    try:
-        parsed = json.loads(content)
-        if isinstance(parsed, dict):
-            reasoning = parsed.get("reasoning", "")
-            shell_command = parsed.get("shell_command", "")
-
-            if reasoning and shell_command:
-                usage = data.get("usage", {})
-                return reasoning, shell_command, usage, extended_reasoning
-    except json.JSONDecodeError:
-        pass
-
-    # Strategy 2: Try to extract JSON from markdown code blocks
-    json_pattern = r"```(?:json)?\s*(\{.*?\})\s*```"
-    matches = re.findall(json_pattern, content, re.DOTALL)
-    for match in matches:
-        try:
-            parsed = json.loads(match)
-            if isinstance(parsed, dict):
-                reasoning = parsed.get("reasoning", "")
-                shell_command = parsed.get("shell_command", "")
-
-                if reasoning and shell_command:
-                    usage = data.get("usage", {})
-                    return reasoning, shell_command, usage, extended_reasoning
-        except json.JSONDecodeError:
-            continue
-
-    # Strategy 3: Try to find JSON object in the text
-    json_obj_pattern = r'\{[^{}]*"reasoning"[^{}]*"shell_command"[^{}]*\}'
-    matches = re.findall(json_obj_pattern, content, re.DOTALL)
-    for match in matches:
-        try:
-            parsed = json.loads(match)
-            if isinstance(parsed, dict):
-                reasoning = parsed.get("reasoning", "")
-                shell_command = parsed.get("shell_command", "")
-
-                if reasoning and shell_command:
-                    usage = data.get("usage", {})
-                    return reasoning, shell_command, usage, extended_reasoning
-        except json.JSONDecodeError:
-            continue
-
-    # Fallback: If all parsing failed, return content as reasoning
-    if not reasoning:
-        reasoning = content
-
     usage = data.get("usage", {})
-    return reasoning, shell_command, usage, extended_reasoning
+
+    result = _parse_json_fields(content, ["reasoning", "shell_command"])
+    if result is not None:
+        return result["reasoning"], result["shell_command"], usage, extended_reasoning
+
+    return content, "", usage, extended_reasoning
+
+
+def call_openrouter_with_history_pty(
+    messages: list, model_name: str
+) -> tuple[str, str, str, dict[str, Any], str]:
+    """Call OpenRouter API with PTY-mode schema (reasoning, shell_command, stdin_input).
+
+    Returns:
+        Tuple of (reasoning, shell_command, stdin_input, usage, extended_reasoning)
+    """
+    from src.llm_utils.response_schema import get_ctf_pty_response_schema
+
+    data = _call_openrouter_api(messages, model_name, get_ctf_pty_response_schema())
+    content, extended_reasoning = _extract_openrouter_message_fields(data)
+    usage = data.get("usage", {})
+
+    result = _parse_json_fields(content, ["reasoning", "shell_command", "stdin_input"])
+    if result is not None:
+        return result["reasoning"], result["shell_command"], result["stdin_input"], usage, extended_reasoning
+
+    return content, "", "", usage, extended_reasoning
 
 
 # For Protocol Generation - structured output with reasoning + protocol
