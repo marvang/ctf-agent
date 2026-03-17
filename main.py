@@ -332,6 +332,12 @@ def main():
     chap_config = prompt_chap_usage()
     use_chap = bool(chap_config.get("enabled", False))
 
+    # Prompt for PTY execution mode (experimental)
+    pty_input = input("\nUse PTY execution mode? (experimental, enables interactive prompts) [y/N]: ").strip().lower()
+    USE_PTY_MODE = pty_input in ("y", "yes")
+    if USE_PTY_MODE:
+        print("✅ PTY mode enabled — interactive commands supported")
+
     try:
         approved_workspace_patterns = load_workspace_approved_patterns()
     except RuntimeError as exc:
