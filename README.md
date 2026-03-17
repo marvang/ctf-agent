@@ -97,6 +97,8 @@ python main.py
 
 The `ctf-workspace/` directory is mounted into the Kali container and shared with the host.
 
+On Linux hosts, and sometimes on macOS when Docker-owned files remain in the bind mount, startup cleanup may require a one-time `sudo -v` so stale `flags.txt` or `report.txt` content can be removed safely.
+
 ## Experiments
 
 Use `scripts/run_experiment.py` for reproducible benchmark runs on the local benchmark.

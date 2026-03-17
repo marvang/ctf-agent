@@ -563,12 +563,13 @@ def run_experiment_agent(
     cleanup_tmux_session(container)
     captured_flag = read_captured_flag()
 
-    cleanup_workspace(
+    if not cleanup_workspace(
         WORKSPACE_DIR,
         approved_workspace_patterns,
         WORKSPACE_FILES_TO_EMPTY,
         auto_confirm=True,
-    )
+    ):
+        print("❌ Final workspace cleanup failed. Run 'sudo -v' and clean the shared workspace before the next run.")
 
     print(f"\n{'=' * 60}")
     print(f"🏁 CTF Complete: {challenge_name}")
