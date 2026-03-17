@@ -1,7 +1,7 @@
 [project]
-name = "chap"
+name = "ctf-agent"
 version = "0.1.0"
-description = "CHAP - Context Handoff for Autonomous Penetration Testing"
+description = "ctf-agent"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
