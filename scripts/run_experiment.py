@@ -51,7 +51,7 @@ from src.utils.discord_utils import (
     send_experiment_interrupted_message,
     send_experiment_start_message,
 )
-from src.utils.environment import LocalArch
+from src.utils.environment import EnvironmentType, LocalArch, uses_vpn
 from src.utils.git import get_git_commit_hash
 from src.utils.state_manager import (
     build_used_prompts_payload,
@@ -108,6 +108,10 @@ DISCORD_NOTIFICATIONS_ENABLED = True  # Set to False, to enable you need to set 
 LOCAL_ARCH: LocalArch = "aarch64"
 SERVICE_STARTUP_DELAY = 30
 
+VPN_MODE = False  # Set to True to target machines over VPN instead of local Docker containers
+VPN_TARGET_IP = ""  # Target IP when VPN_MODE is True (e.g., "10.10.14.5")
+ENVIRONMENT_MODE: EnvironmentType = "local"  # "local", "private", or "htb"
+
 RESULTS_DIR = "./results"
 EXPERIMENT_SET_NAME = "default"
 
@@ -154,6 +158,21 @@ def parse_args():
         help="Session ID for isolated Docker/workspace resources",
     )
 
+    # VPN / environment overrides
+    vpn_group = parser.add_mutually_exclusive_group()
+    vpn_group.add_argument("--vpn", dest="vpn_mode", action="store_true", help="Enable VPN mode (target over VPN)")
+    vpn_group.add_argument("--no-vpn", dest="vpn_mode", action="store_false", help="Disable VPN mode (local Docker)")
+    parser.set_defaults(vpn_mode=None)  # None means use file default
+
+    parser.add_argument(
+        "--environment",
+        type=str,
+        choices=["local", "private", "htb"],
+        default=None,
+        help="Environment mode: local, private, or htb",
+    )
+    parser.add_argument("--target-ip", type=str, default=None, help="Target IP address (required for VPN mode)")
+
     return parser.parse_args()
 
 
@@ -161,6 +180,7 @@ def apply_cli_overrides(args):
     """Apply CLI arguments to global config variables."""
     global CHAP_ENABLED, EXPERIMENT_SET_NAME, CHAP_TOKEN_LIMIT_BASE
     global MODEL_NAME, CHAP_TOKEN_LIMIT_INCREMENT, CHAP_AUTO_TRIGGER
+    global VPN_MODE, VPN_TARGET_IP, ENVIRONMENT_MODE
 
     if args.chap_enabled is not None:
         CHAP_ENABLED = args.chap_enabled
@@ -174,6 +194,17 @@ def apply_cli_overrides(args):
         CHAP_TOKEN_LIMIT_INCREMENT = args.token_increment
     if args.auto_trigger is not None:
         CHAP_AUTO_TRIGGER = args.auto_trigger
+
+    if args.vpn_mode is not None:
+        VPN_MODE = args.vpn_mode
+    if args.environment is not None:
+        ENVIRONMENT_MODE = args.environment
+    if args.target_ip is not None:
+        VPN_TARGET_IP = args.target_ip
+
+    # When VPN_MODE is True and --environment was not explicitly set, default to "private"
+    if VPN_MODE and args.environment is None:
+        ENVIRONMENT_MODE = "private"
 
 
 def get_custom_instructions_for_challenge(challenge_name: str) -> str:
@@ -230,6 +261,8 @@ def save_results(
         "session_id": session_runtime.session_id,
         "network_name": session_runtime.network_name,
         "workspace_dir": os.path.abspath(session_runtime.workspace_dir),
+        "environment_mode": ENVIRONMENT_MODE,
+        "vpn_target_ip": VPN_TARGET_IP,
         "results_dir": os.path.abspath(results_dir),
         "termination_reason": termination_reason or "unknown",
         "use_amd64_prompt": LOCAL_ARCH == "amd64",
@@ -288,6 +321,9 @@ def main():
     print(f"Challenges: {len(CTF_CHALLENGES)}")
     print(f"Max iterations: {MAX_ITERATIONS}")
     print(f"Max cost per challenge: ${MAX_COST}")
+    print(f"Environment: {ENVIRONMENT_MODE}")
+    if uses_vpn(ENVIRONMENT_MODE):
+        print(f"VPN Target IP: {VPN_TARGET_IP}")
     print(f"Experiment name: {EXPERIMENT_SET_NAME}")
     if session_runtime.isolated:
         print(f"Session ID: {session_runtime.session_id}")
@@ -296,11 +332,19 @@ def main():
         print(f"Workspace: {session_runtime.workspace_dir}")
     print("=" * 80)
 
-    print(f"\n🌐 Ensuring Docker network '{session_runtime.network_name}' is available...")
-    if session_runtime.isolated:
-        start_network(session_runtime.network_name, session_runtime.subnet)
-    else:
-        start_network()
+    # Validate VPN configuration
+    if uses_vpn(ENVIRONMENT_MODE) and not VPN_TARGET_IP:
+        print("ERROR: --target-ip is required when environment is not 'local'")
+        sys.exit(1)
+
+    is_local = ENVIRONMENT_MODE == "local"
+
+    if is_local:
+        print(f"\n🌐 Ensuring Docker network '{session_runtime.network_name}' is available...")
+        if session_runtime.isolated:
+            start_network(session_runtime.network_name, session_runtime.subnet)
+        else:
+            start_network()
 
     results = []
     experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -341,24 +385,28 @@ def main():
             send_challenge_start_message(channel_id=channel_id, challenge=challenge, index=idx, total=total_challenges)
 
             try:
-                # Start vulnerable container
-                print(f"\n📦 Starting vulnerable container: {challenge}")
-                if session_runtime.isolated:
-                    target_ip = start_challenge_container_standalone(
-                        challenge_name=challenge,
-                        container_name=challenge_container_name,
-                        network_name=session_runtime.network_name,
-                    )
+                if is_local:
+                    # Start vulnerable container
+                    print(f"\n📦 Starting vulnerable container: {challenge}")
+                    if session_runtime.isolated:
+                        target_ip = start_challenge_container_standalone(
+                            challenge_name=challenge,
+                            container_name=challenge_container_name,
+                            network_name=session_runtime.network_name,
+                        )
+                    else:
+                        target_ip = start_container(challenge)
+                    print(f"✅ Container started at {target_ip}")
+
+                    current_time = datetime.now().strftime("%H:%M:%S %Y-%m-%d")
+                    print(f"🕒 Current time: {current_time}")
+
+                    print(f"⏳ Waiting {SERVICE_STARTUP_DELAY}s for service to initialize...")
+                    time.sleep(SERVICE_STARTUP_DELAY)
+                    print("✅ Proceeding with challenge")
                 else:
-                    target_ip = start_container(challenge)
-                print(f"✅ Container started at {target_ip}")
-
-                current_time = datetime.now().strftime("%H:%M:%S %Y-%m-%d")
-                print(f"🕒 Current time: {current_time}")
-
-                print(f"⏳ Waiting {SERVICE_STARTUP_DELAY}s for service to initialize...")
-                time.sleep(SERVICE_STARTUP_DELAY)
-                print("✅ Proceeding with challenge")
+                    target_ip = VPN_TARGET_IP
+                    print(f"\n🌐 VPN mode: targeting {target_ip}")
 
                 if session_runtime.isolated:
                     kali_ok = start_kali_container_standalone(
@@ -428,6 +476,7 @@ def main():
                     local_arch=LOCAL_ARCH,
                     session_path=os.path.join(challenge_dir, "session.json"),
                     workspace_dir=session_runtime.workspace_dir,
+                    environment_mode=ENVIRONMENT_MODE,
                 )
 
                 result["challenge_name"] = challenge
@@ -495,12 +544,13 @@ def main():
 
             finally:
                 print("\n🧹 Cleaning up...")
-                stop_kali_container(session_runtime.kali_container_name)
-                print(f"🧹 Stopping vulnerable container: {challenge}")
-                if session_runtime.isolated:
-                    stop_challenge_container_standalone(challenge_container_name)
-                else:
-                    stop_container(challenge)
+                if is_local:
+                    stop_kali_container(session_runtime.kali_container_name)
+                    print(f"🧹 Stopping vulnerable container: {challenge}")
+                    if session_runtime.isolated:
+                        stop_challenge_container_standalone(challenge_container_name)
+                    else:
+                        stop_container(challenge)
 
             save_results(results, results_dir, session_runtime, experiment_dir, experiment_id, termination_reason)
 
@@ -559,11 +609,12 @@ def main():
             },
         )
 
-    print(f"\n🛑 Stopping Docker network '{session_runtime.network_name}'...")
-    if session_runtime.isolated:
-        stop_network(session_runtime.network_name)
-    else:
-        stop_network()
+    if is_local:
+        print(f"\n🛑 Stopping Docker network '{session_runtime.network_name}'...")
+        if session_runtime.isolated:
+            stop_network(session_runtime.network_name)
+        else:
+            stop_network()
     print("Exit.")
 
 

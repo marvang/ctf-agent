@@ -34,10 +34,11 @@ class LocalChallengesTests(unittest.TestCase):
 
     def test_session_resource_names_are_normalized(self) -> None:
         session_id = " Review Session #6 "
+        normalized = normalize_session_id(session_id)
 
-        self.assertEqual(normalize_session_id(session_id), "review-session-6")
-        self.assertEqual(get_session_network_name(session_id), "target_net_review-sessi")
-        self.assertEqual(get_session_challenge_name("vm3", session_id), "vm3-review-sessi")
+        self.assertEqual(normalized, "review-session-6")
+        self.assertEqual(get_session_network_name(normalized), "target_net_review-sessi")
+        self.assertEqual(get_session_challenge_name("vm3", normalized), "vm3-review-sessi")
 
     def test_session_subnets_use_separate_private_range(self) -> None:
         subnet = get_session_subnet_from_id("parallel-run")

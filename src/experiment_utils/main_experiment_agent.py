@@ -28,7 +28,7 @@ from src.utils.discord_utils import (
 )
 from src.utils.docker_exec import cleanup_tmux_session, execute_command, get_container_ips
 from src.utils.docker_utils import connect_to_docker
-from src.utils.environment import LocalArch
+from src.utils.environment import EnvironmentType, LocalArch, uses_vpn
 from src.utils.output import truncate_output
 from src.utils.state_manager import (
     append_session_event,
@@ -81,6 +81,7 @@ def run_experiment_agent(
     local_arch: LocalArch = "aarch64",
     session_path: str | None = None,
     workspace_dir: str = WORKSPACE_DIR,
+    environment_mode: EnvironmentType = "local",
 ) -> dict[str, Any]:
     """
     Run CTF agent in experiment mode (no user interaction)
@@ -151,13 +152,13 @@ def run_experiment_agent(
     if container is None:
         return _error_result("Failed to connect to Docker container", "docker_connection_error")
 
-    agent_ips = get_container_ips(container, use_vpn=False)
+    agent_ips = get_container_ips(container, use_vpn=uses_vpn(environment_mode))
     print(f"\n🔍 Agent IP: {', '.join(agent_ips)}")
 
     session = create_session(model=model_name, chap_enabled=chap_enabled)
 
     messages = build_initial_messages(
-        environment_mode="local",
+        environment_mode=environment_mode,
         target_info=target_ip,
         use_chap=chap_enabled,
         custom_instructions=custom_instructions,
@@ -329,7 +330,7 @@ def run_experiment_agent(
                     session=session,
                     messages=messages,
                     model_name=model_name,
-                    environment_mode="local",
+                    environment_mode=environment_mode,
                     target_info=target_ip,
                     custom_instructions=custom_instructions,
                     current_iteration=iteration,
