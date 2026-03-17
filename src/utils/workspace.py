@@ -38,13 +38,20 @@ def _has_interactive_tty() -> bool:
     return sys.stdin is not None and sys.stdin.isatty()
 
 
-def _run_sudo_command(command: list[str]):
+def _run_sudo_command(command: list[str]) -> subprocess.CompletedProcess[str] | None:
     """Run a non-interactive sudo command used for workspace cleanup."""
     try:
         return subprocess.run(["sudo", "-n", *command], capture_output=True, text=True)
     except OSError as exc:
         print(f"❌ Failed to run sudo command {' '.join(command)}: {exc}")
         return None
+
+
+def _format_sudo_error(result: subprocess.CompletedProcess[str] | None) -> str:
+    """Extract an error message from a sudo command result."""
+    if result is None:
+        return "failed to invoke sudo"
+    return (result.stderr or "").strip() or "unknown error"
 
 
 def _ensure_sudo_ready() -> bool:
@@ -87,10 +94,7 @@ def _delete_workspace_item(item_path: str) -> bool:
     item_type = "directory" if os.path.isdir(item_path) else "file"
     result = _run_sudo_command(["rm", "-rf", "--", item_path])
     if result is None or result.returncode != 0:
-        error_detail = "failed to invoke sudo"
-        if result is not None:
-            error_detail = (result.stderr or "").strip() or "unknown error"
-        print(f"❌ FATAL: Could not delete {item_name}: {error_detail}")
+        print(f"❌ FATAL: Could not delete {item_name}: {_format_sudo_error(result)}")
         return False
 
     print(f"🗑️  Deleted {item_type}: {item_name}")
@@ -102,19 +106,14 @@ def _empty_workspace_file(file_path: str) -> bool:
     filename = os.path.basename(file_path)
     result = _run_sudo_command(["truncate", "-s", "0", file_path])
     if result is None or result.returncode != 0:
-        error_detail = "failed to invoke sudo"
-        if result is not None:
-            error_detail = (result.stderr or "").strip() or "unknown error"
-        print(f"❌ FATAL: Could not empty {filename}: {error_detail}")
+        print(f"❌ FATAL: Could not empty {filename}: {_format_sudo_error(result)}")
         return False
 
-    try:
-        if not os.path.exists(file_path):
-            raise FileNotFoundError("File missing after truncate")
-        if os.path.getsize(file_path) != 0:
-            raise OSError("File still has content after truncate")
-    except OSError as exc:
-        print(f"❌ FATAL: Could not verify {filename} was emptied: {exc}")
+    if not os.path.exists(file_path):
+        print(f"❌ FATAL: Could not verify {filename} was emptied: file missing after truncate")
+        return False
+    if os.path.getsize(file_path) != 0:
+        print(f"❌ FATAL: Could not verify {filename} was emptied: file still has content")
         return False
 
     print(f"📝 Emptied: {filename}")
