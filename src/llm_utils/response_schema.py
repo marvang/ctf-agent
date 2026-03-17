@@ -2,6 +2,7 @@
 JSON schema definitions for structured model responses
 """
 
+
 def get_ctf_response_schema() -> dict:
     """JSON schema enforcing {reasoning, shell_command} responses."""
     return {
@@ -14,17 +15,17 @@ def get_ctf_response_schema() -> dict:
                 "properties": {
                     "reasoning": {
                         "type": "string",
-                        "description": "The reasoning behind the command choice and approach"
+                        "description": "The reasoning behind the command choice and approach",
                     },
                     "shell_command": {
                         "type": "string",
-                        "description": "The shell command to execute in the CTF environment"
-                    }
+                        "description": "The shell command to execute in the CTF environment",
+                    },
                 },
                 "required": ["reasoning", "shell_command"],
-                "additionalProperties": False
-            }
-        }
+                "additionalProperties": False,
+            },
+        },
     }
 
 
@@ -40,15 +41,15 @@ def get_protocol_response_schema() -> dict:
                 "properties": {
                     "reasoning": {
                         "type": "string",
-                        "description": "Reasoning and analysis of penetration testing session, chain of thought regarding the protocol generation approach and key decisions"
+                        "description": "Reasoning and analysis of penetration testing session, chain of thought regarding the protocol generation approach and key decisions",
                     },
                     "protocol": {
                         "type": "string",
-                        "description": "The markdown relay protocol content to be appended to the initial prompt for the next agent"
-                    }
+                        "description": "The markdown relay protocol content to be appended to the initial prompt for the next agent",
+                    },
                 },
                 "required": ["reasoning", "protocol"],
-                "additionalProperties": False
-            }
-        }
+                "additionalProperties": False,
+            },
+        },
     }

@@ -8,6 +8,7 @@ wheels/
 .DS_Store
 .uv/
 .venv
+.ruff_cache
 ctf-workspace/**
 !ctf-workspace/vpn/
 !ctf-workspace/vpn/htb/
@@ -21,3 +22,4 @@ CLAUDE.md
 .claude/
 ctf-experiment-runner/
 results/
+todo.md

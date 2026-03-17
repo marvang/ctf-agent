@@ -1,11 +1,11 @@
 """Workspace management utilities for CTF Agent"""
+
 import fnmatch
 import os
 import shutil
-from typing import List
 
 
-def _is_approved_path(relative_path: str, approved_patterns: List[str], is_dir: bool) -> bool:
+def _is_approved_path(relative_path: str, approved_patterns: list[str], is_dir: bool) -> bool:
     """Check whether a workspace-relative path matches an approved pattern."""
     normalized_path = relative_path.replace(os.sep, "/")
 
@@ -31,10 +31,7 @@ def _is_approved_path(relative_path: str, approved_patterns: List[str], is_dir: 
 
 
 def cleanup_workspace(
-    workspace_dir: str,
-    approved_patterns: List[str],
-    files_to_empty: List[str],
-    auto_confirm: bool = False
+    workspace_dir: str, approved_patterns: list[str], files_to_empty: list[str], auto_confirm: bool = False
 ) -> bool:
     """
     Clean up workspace from previous sessions.
@@ -78,7 +75,7 @@ def cleanup_workspace(
 
     # Ask user if they want to clean
     if items_to_delete or files_to_empty_list:
-        print(f"\n🧹 Workspace cleanup:")
+        print("\n🧹 Workspace cleanup:")
 
         if items_to_delete:
             print(f"\n🗑️  Will DELETE {len(items_to_delete)} item(s):")
@@ -88,7 +85,7 @@ def cleanup_workspace(
                 print(f"   ... and {len(items_to_delete) - 5} more")
 
         if files_to_empty_list:
-            print(f"\n📝 Will EMPTY (keep file, clear contents):")
+            print("\n📝 Will EMPTY (keep file, clear contents):")
             for filename in files_to_empty_list:
                 print(f"   - {filename}")
 
@@ -114,7 +111,7 @@ def cleanup_workspace(
             for filename in files_to_empty_list:
                 file_path = os.path.join(workspace_dir, filename)
                 try:
-                    open(file_path, 'w').close()
+                    open(file_path, "w").close()
                     print(f"📝 Emptied: {filename}")
                 except Exception as e:
                     print(f"⚠️  Could not empty {filename}: {e}")

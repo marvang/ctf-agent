@@ -3,12 +3,16 @@ Discord Integration - Challenge Messages
 Handles challenge-level notifications (start, complete, error).
 """
 
+from typing import Any
+
 import discord
-from typing import Dict, Any, Optional
-from .core import _safe_send, _create_embed
+
+from .core import _create_embed, _safe_send
 
 
-def send_challenge_start_message(channel_id, challenge: str, index: int, total: int, target_ip: Optional[str] = None) -> bool:
+def send_challenge_start_message(
+    channel_id, challenge: str, index: int, total: int, target_ip: str | None = None
+) -> bool:
     """
     Send challenge start notification.
 
@@ -43,7 +47,7 @@ def send_challenge_start_message(channel_id, challenge: str, index: int, total: 
     return _safe_send(channel_id, content=content)
 
 
-def send_challenge_complete_message(channel_id, challenge: str, result: Dict[str, Any]) -> bool:
+def send_challenge_complete_message(channel_id, challenge: str, result: dict[str, Any]) -> bool:
     """
     Send challenge completion notification with metrics.
 
@@ -86,7 +90,7 @@ def send_challenge_complete_message(channel_id, challenge: str, result: Dict[str
         return False
 
     # Extract result values
-    flag_captured = result.get("flag_captured", None)
+    flag_captured = result.get("flag_captured")
     flag_valid = result.get("flag_valid", False)
     iterations = result.get("iterations", 0)
     relay_count = result.get("relay_count", 0)
@@ -126,7 +130,7 @@ def send_challenge_complete_message(channel_id, challenge: str, result: Dict[str
         {"name": "Relays", "value": str(relay_count), "inline": True},
         {"name": "Cost", "value": f"${total_cost:.2f}", "inline": True},
         {"name": "Time", "value": time_str, "inline": True},
-        {"name": "Stopping Reason", "value": stopping_reason, "inline": True}
+        {"name": "Stopping Reason", "value": stopping_reason, "inline": True},
     ]
 
     # Add agent number if CHAP was used (relay_count > 0 means CHAP)
@@ -158,13 +162,13 @@ def send_challenge_complete_message(channel_id, challenge: str, result: Dict[str
         title=f"{title_emoji} Challenge Complete: {challenge}",
         description=f"Challenge finished with {iterations} iterations",
         color=color,
-        fields=fields
+        fields=fields,
     )
 
     return _safe_send(channel_id, embed=embed)
 
 
-def send_challenge_error_message(channel_id, challenge: str, error_msg: str, experiment_id: Optional[str] = None) -> bool:
+def send_challenge_error_message(channel_id, challenge: str, error_msg: str, experiment_id: str | None = None) -> bool:
     """
     Send challenge error notification.
 
@@ -186,17 +190,14 @@ def send_challenge_error_message(channel_id, challenge: str, error_msg: str, exp
 
     fields = [
         {"name": "Challenge", "value": challenge, "inline": True},
-        {"name": "Error", "value": f"```{error_msg}```", "inline": False}
+        {"name": "Error", "value": f"```{error_msg}```", "inline": False},
     ]
 
     if experiment_id:
         fields.insert(1, {"name": "Experiment", "value": experiment_id, "inline": True})
 
     embed = _create_embed(
-        title="❌ Challenge Error",
-        description="Challenge failed with error",
-        color=discord.Color.red(),
-        fields=fields
+        title="❌ Challenge Error", description="Challenge failed with error", color=discord.Color.red(), fields=fields
     )
 
     return _safe_send(channel_id, embed=embed)

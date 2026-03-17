@@ -5,7 +5,6 @@ from textwrap import dedent
 from unittest.mock import patch
 
 import src.experiment_utils.docker_ops as docker_ops
-
 from src.config.constants import (
     LOCAL_CHALLENGES_COMPOSE_FILE,
     LOCAL_CHALLENGES_NETWORK_NAME,

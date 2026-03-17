@@ -5,11 +5,7 @@ def _count_session_commands(session: dict) -> int:
     """Count executed commands across replay events, with legacy fallback."""
     events = session.get("events")
     if isinstance(events, list):
-        return sum(
-            1
-            for event in events
-            if isinstance(event, dict) and event.get("tag") == "assistant_command"
-        )
+        return sum(1 for event in events if isinstance(event, dict) and event.get("tag") == "assistant_command")
 
     commands = session.get("commands")
     if isinstance(commands, list):
@@ -38,15 +34,15 @@ def display_session_summary(session: dict, iterations: int, elapsed_seconds: flo
     total_cost = session["metrics"]["total_cost"]
     command_count = _count_session_commands(session)
 
-    print("\n" + "="*40)
+    print("\n" + "=" * 40)
     print("🏁 Session ended")
     print(f"📊 {iterations} iterations | {command_count} commands")
     print(f"⏱️  Elapsed time: {time_str}")
-    print("="*40)
+    print("=" * 40)
     print(f"Model used: {selected_model} 🤖")
     print("\n📈 Token Usage Summary:")
     print(f"   Input tokens:  {total_input:,}")
     print(f"   Output tokens: {total_output:,}")
     print(f"   Total tokens:  {total_tokens:,}")
     print(f"   💰 Total cost: ${total_cost:.4f}")
-    print("="*40)
+    print("=" * 40)

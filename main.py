@@ -16,16 +16,58 @@ synced between both files.
 
 """
 
-
-import os
-import time
 import json
+import os
 import subprocess
+import time
 from datetime import datetime
+
 from dotenv import load_dotenv
-from src.config.constants import MAX_EMPTY_COMMAND_RETRIES, COMMAND_TIMEOUT_SECONDS, MAX_OUTPUT_LENGTH, KALI_CONTAINER_NAME
+
+from src.chap_utils.protocol_generator import PROTOCOL_GENERATOR_SYSTEM_PROMPT
+from src.chap_utils.relay_handler import trigger_relay_handoff
+from src.config.constants import (
+    COMMAND_TIMEOUT_SECONDS,
+    KALI_CONTAINER_NAME,
+    LOCAL_CHALLENGES_NETWORK_NAME,
+    MAX_EMPTY_COMMAND_RETRIES,
+    MAX_OUTPUT_LENGTH,
+)
+from src.config.workspace import (
+    WORKSPACE_DIR,
+    WORKSPACE_FILES_TO_EMPTY,
+    load_workspace_approved_patterns,
+    read_captured_flag,
+)
+from src.experiment_utils.docker_ops import (
+    start_container,
+    start_kali_container,
+    start_network,
+    stop_container,
+    stop_kali_container,
+)
 from src.llm_utils.openrouter import call_openrouter_with_history, parse_llm_error
 from src.llm_utils.prompt_builder import build_initial_messages
+from src.utils.docker_exec import cleanup_tmux_session, execute_command, get_container_ips
+from src.utils.docker_utils import connect_to_docker
+from src.utils.environment import EnvironmentType, LocalArch, uses_vpn
+from src.utils.git import get_git_commit_hash
+from src.utils.output import truncate_output
+from src.utils.session_utils import display_session_summary
+from src.utils.signal_handler import (
+    is_vpn_connected,
+    register_signal_handler,
+    set_cleanup_callback,
+    set_container,
+    set_iteration,
+    set_model,
+    set_save_callback,
+    set_session,
+    set_session_dir,
+    set_start_time,
+    set_vpn_connected,
+    set_vpn_env,
+)
 from src.utils.state_manager import (
     append_session_event,
     build_assistant_message,
@@ -35,39 +77,21 @@ from src.utils.state_manager import (
     set_session_context,
     update_session_tokens,
 )
-from src.config.constants import LOCAL_CHALLENGES_NETWORK_NAME
-from src.config.workspace import (
-    WORKSPACE_DIR,
-    WORKSPACE_FILES_TO_EMPTY,
-    load_workspace_approved_patterns,
-    read_captured_flag,
-)
-from src.utils.workspace import cleanup_workspace
-from src.utils.output import truncate_output
-from src.utils.git import get_git_commit_hash
-from src.utils.vpn import connect_vpn, disconnect_vpn, discover_vpn_scripts, get_vpn_setup_hint
-from src.utils.docker_exec import execute_command, cleanup_tmux_session, get_container_ips
-from src.utils.docker_utils import connect_to_docker
-from src.experiment_utils.docker_ops import (
-    start_container, stop_container,
-    start_kali_container, stop_kali_container,
-    start_network,
-)
-from src.utils.session_utils import display_session_summary
-from src.utils.environment import EnvironmentType, LocalArch, uses_vpn
 from src.utils.user_interface import (
-    print_banner, prompt_environment_selection, prompt_architecture_selection,
-    prompt_local_challenge_selection, prompt_target_ip, prompt_custom_instructions,
-    print_config_summary, prompt_chap_usage,
-    prompt_model_selection, check_private_vpn_setup, prompt_vpn_script_selection,
+    check_private_vpn_setup,
+    print_banner,
+    print_config_summary,
+    prompt_architecture_selection,
+    prompt_chap_usage,
+    prompt_custom_instructions,
+    prompt_environment_selection,
+    prompt_local_challenge_selection,
+    prompt_model_selection,
+    prompt_target_ip,
+    prompt_vpn_script_selection,
 )
-from src.utils.signal_handler import (
-    register_signal_handler, set_container, set_vpn_connected,
-    set_session, is_vpn_connected, set_iteration, set_start_time, set_model,
-    set_save_callback, set_cleanup_callback, set_session_dir, set_vpn_env,
-)
-from src.chap_utils.relay_handler import trigger_relay_handoff
-from src.chap_utils.protocol_generator import PROTOCOL_GENERATOR_SYSTEM_PROMPT
+from src.utils.vpn import connect_vpn, disconnect_vpn, discover_vpn_scripts, get_vpn_setup_hint
+from src.utils.workspace import cleanup_workspace
 
 MAX_COST_AUTO_MODE = 2
 MAX_ITERATIONS_AUTO_MODE = 200
@@ -217,7 +241,7 @@ def save_interactive_results(
         challenge_name=challenge_name,
         model_name=selected_model,
         chap_enabled=use_chap,
-        chap_auto_trigger=chap_config.get('auto_trigger', False),
+        chap_auto_trigger=chap_config.get("auto_trigger", False),
         environment_mode=environment_mode,
         target_ip=target_ip,
     )
@@ -235,10 +259,10 @@ def save_interactive_results(
             "mode": "interactive",
             "model": selected_model,
             "chap_enabled": use_chap,
-            "chap_auto_trigger": chap_config.get('auto_trigger', False),
-            "chap_token_limit_base": chap_config.get('token_limit_base'),
-            "chap_token_limit_increment": chap_config.get('token_limit_increment'),
-            "chap_min_iterations_for_relay": chap_config.get('min_iterations_for_relay'),
+            "chap_auto_trigger": chap_config.get("auto_trigger", False),
+            "chap_token_limit_base": chap_config.get("token_limit_base"),
+            "chap_token_limit_increment": chap_config.get("token_limit_increment"),
+            "chap_min_iterations_for_relay": chap_config.get("min_iterations_for_relay"),
             "environment_mode": environment_mode,
             "challenge_name": challenge_name,
             "use_vpn": use_vpn,
@@ -305,7 +329,7 @@ def main():
 
     # Prompt for CHAP (Context Handoff Protocol) configuration
     chap_config = prompt_chap_usage()
-    use_chap = bool(chap_config.get('enabled', False))
+    use_chap = bool(chap_config.get("enabled", False))
 
     try:
         approved_workspace_patterns = load_workspace_approved_patterns()
@@ -415,7 +439,7 @@ def main():
             challenge_name = "private_vpn_range"
 
     # Results directory setup
-    run_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_dir = os.path.join("./results/interactive", f"session_{run_timestamp}", challenge_name)
     os.makedirs(session_dir, exist_ok=True)
 
@@ -427,7 +451,7 @@ def main():
         challenge_name=challenge_name,
         model_name=selected_model,
         chap_enabled=use_chap,
-        chap_auto_trigger=chap_config.get('auto_trigger', False),
+        chap_auto_trigger=chap_config.get("auto_trigger", False),
         environment_mode=environment_mode,
         target_ip=target_ip,
     )
@@ -514,109 +538,285 @@ def main():
     set_session_dir(session_dir)
 
     try:
-      while True:
-        print(f"\n{'='*40}")
-        iteration_header = f"Iteration {iteration + 1}"
-        if use_chap:
-            iteration_header += f" (CHAP Agent #{session['agent_number']})"
-        print(iteration_header)
-        print('='*40)
-
-        current_session_cost = session["metrics"]["total_cost"]
-
-        if not cost_threshold_prompted and current_session_cost >= MAX_COST_AUTO_MODE:
-            cost_threshold_prompted = True
-            print(f"\n⚠️  Cost limit reached: ${current_session_cost:.4f} / ${MAX_COST_AUTO_MODE:.2f}")
-            user_input = input("Continue? (y/n) [n]: ").strip().lower()
-            if user_input != "y":
-                print("\n👋 Exiting...")
-                stopping_reason = "cost_limit"
-                break
-
-        if not iteration_threshold_prompted and iteration >= MAX_ITERATIONS_AUTO_MODE:
-            iteration_threshold_prompted = True
-            print(f"\n⚠️  Iteration limit reached: {iteration} / {MAX_ITERATIONS_AUTO_MODE}")
-            user_input = input("Continue? (y/n) [n]: ").strip().lower()
-            if user_input != "y":
-                print("\n👋 Exiting...")
-                stopping_reason = "iteration_limit"
-                break
-
-        try:
-            reasoning, shell_command, usage, extended_reasoning = call_openrouter_with_history(
-                messages=messages,
-                model_name=selected_model,
-            )
-        except Exception as e:
-            print(f"❌ LLM API error: {e}")
-            llm_error_details = parse_llm_error(e)
-            error_message = f"LLM API error: {e}"
-            stopping_reason = "llm_error"
-            break
-
-        # Display LLM response
-        if extended_reasoning:
-            # Truncate long extended reasoning for display
-            display_extended = extended_reasoning[:500]
-            if len(extended_reasoning) > 500:
-                display_extended += "..."
-            print(f"\n💭 Internal Reasoning:\n<thinking>\n{display_extended}\n</thinking>")
-        print(f"\n🧠 {reasoning}")
-        print(f"💻 {shell_command}")
-
-        # Track token usage in session
-        prompt_tokens = 0
-        token_limit_for_agent = 0
-        token_usage_percentage = 0.0
-
-        if usage:
-            update_session_tokens(session, usage)
-
-            # Calculate token metrics for CHAP (used for auto-trigger and 80% warning)
+        while True:
+            print(f"\n{'=' * 40}")
+            iteration_header = f"Iteration {iteration + 1}"
             if use_chap:
-                prompt_tokens = usage.get('prompt_tokens', 0)
-                token_limit_for_agent = chap_config['token_limit_base'] + (session["agent_number"] * chap_config['token_limit_increment'])
-                if token_limit_for_agent > 0:
-                    token_usage_percentage = (prompt_tokens / token_limit_for_agent) * 100
+                iteration_header += f" (CHAP Agent #{session['agent_number']})"
+            print(iteration_header)
+            print("=" * 40)
 
-            # Check if input prompt exceeded threshold (CHAP only, when auto-trigger enabled)
-            if use_chap and chap_config['auto_trigger'] and prompt_tokens >= token_limit_for_agent:
-                print(f"\n⚠️  Auto-triggering relay: Input prompt exceeded threshold!")
-                print(f"💬 Prompt tokens: {prompt_tokens:,} / {token_limit_for_agent:,}")
-                print(f"🤖 Agent {session['agent_number']} handing off...")
+            current_session_cost = session["metrics"]["total_cost"]
 
-                auto_relay_event = append_session_event(
-                    session,
-                    stream="main_agent",
-                    tag="assistant_auto_relay_discarded",
-                    message=build_assistant_message(reasoning, shell_command),
-                    parsed={
-                        "reasoning": reasoning,
-                        "shell_command": shell_command,
-                        "extended_reasoning": extended_reasoning,
-                    },
-                    iteration=iteration,
-                    usage=usage,
-                    metadata={
-                        "included_in_history": False,
-                        "prompt_tokens": prompt_tokens,
-                        "token_limit": token_limit_for_agent,
-                    },
-                    session_path=session_path,
+            if not cost_threshold_prompted and current_session_cost >= MAX_COST_AUTO_MODE:
+                cost_threshold_prompted = True
+                print(f"\n⚠️  Cost limit reached: ${current_session_cost:.4f} / ${MAX_COST_AUTO_MODE:.2f}")
+                user_input = input("Continue? (y/n) [n]: ").strip().lower()
+                if user_input != "y":
+                    print("\n👋 Exiting...")
+                    stopping_reason = "cost_limit"
+                    break
+
+            if not iteration_threshold_prompted and iteration >= MAX_ITERATIONS_AUTO_MODE:
+                iteration_threshold_prompted = True
+                print(f"\n⚠️  Iteration limit reached: {iteration} / {MAX_ITERATIONS_AUTO_MODE}")
+                user_input = input("Continue? (y/n) [n]: ").strip().lower()
+                if user_input != "y":
+                    print("\n👋 Exiting...")
+                    stopping_reason = "iteration_limit"
+                    break
+
+            try:
+                reasoning, shell_command, usage, extended_reasoning = call_openrouter_with_history(
+                    messages=messages,
+                    model_name=selected_model,
                 )
+            except Exception as e:
+                print(f"❌ LLM API error: {e}")
+                llm_error_details = parse_llm_error(e)
+                error_message = f"LLM API error: {e}"
+                stopping_reason = "llm_error"
+                break
 
-                session['metrics']['total_time'] = time.time() - session_start_time
-                session['relay_triggers'].append({
-                    'relay_number': relay_count + 1,
-                    'trigger_type': 'auto',
-                    'iteration': iteration,
-                    'reason': 'prompt_token_threshold',
-                    'prompt_tokens': prompt_tokens,
-                    'token_limit': token_limit_for_agent,
-                    'trigger_event_index': auto_relay_event["event_index"],
-                })
+            # Display LLM response
+            if extended_reasoning:
+                # Truncate long extended reasoning for display
+                display_extended = extended_reasoning[:500]
+                if len(extended_reasoning) > 500:
+                    display_extended += "..."
+                print(f"\n💭 Internal Reasoning:\n<thinking>\n{display_extended}\n</thinking>")
+            print(f"\n🧠 {reasoning}")
+            print(f"💻 {shell_command}")
+
+            # Track token usage in session
+            prompt_tokens = 0
+            token_limit_for_agent = 0
+            token_usage_percentage = 0.0
+
+            if usage:
+                update_session_tokens(session, usage)
+
+                # Calculate token metrics for CHAP (used for auto-trigger and 80% warning)
+                if use_chap:
+                    prompt_tokens = usage.get("prompt_tokens", 0)
+                    token_limit_for_agent = chap_config["token_limit_base"] + (
+                        session["agent_number"] * chap_config["token_limit_increment"]
+                    )
+                    if token_limit_for_agent > 0:
+                        token_usage_percentage = (prompt_tokens / token_limit_for_agent) * 100
+
+                # Check if input prompt exceeded threshold (CHAP only, when auto-trigger enabled)
+                if use_chap and chap_config["auto_trigger"] and prompt_tokens >= token_limit_for_agent:
+                    print("\n⚠️  Auto-triggering relay: Input prompt exceeded threshold!")
+                    print(f"💬 Prompt tokens: {prompt_tokens:,} / {token_limit_for_agent:,}")
+                    print(f"🤖 Agent {session['agent_number']} handing off...")
+
+                    auto_relay_event = append_session_event(
+                        session,
+                        stream="main_agent",
+                        tag="assistant_auto_relay_discarded",
+                        message=build_assistant_message(reasoning, shell_command),
+                        parsed={
+                            "reasoning": reasoning,
+                            "shell_command": shell_command,
+                            "extended_reasoning": extended_reasoning,
+                        },
+                        iteration=iteration,
+                        usage=usage,
+                        metadata={
+                            "included_in_history": False,
+                            "prompt_tokens": prompt_tokens,
+                            "token_limit": token_limit_for_agent,
+                        },
+                        session_path=session_path,
+                    )
+
+                    session["metrics"]["total_time"] = time.time() - session_start_time
+                    session["relay_triggers"].append(
+                        {
+                            "relay_number": relay_count + 1,
+                            "trigger_type": "auto",
+                            "iteration": iteration,
+                            "reason": "prompt_token_threshold",
+                            "prompt_tokens": prompt_tokens,
+                            "token_limit": token_limit_for_agent,
+                            "trigger_event_index": auto_relay_event["event_index"],
+                        }
+                    )
+                    persist_session(session, session_path)
+
+                    messages = trigger_relay_handoff(
+                        session=session,
+                        messages=messages,
+                        model_name=selected_model,
+                        environment_mode=environment_mode,
+                        target_info=target_ip,
+                        custom_instructions=custom_instructions,
+                        current_iteration=iteration,
+                        agent_ips=agent_ips,
+                        local_arch=local_arch,
+                        session_path=session_path,
+                    )
+                    relay_count += 1
+
+                    # Reset per-agent state
+                    last_relay_iteration = iteration
+                    chap_80_percent_warning_shown = False
+                    continue  # Skip to next iteration with fresh agent
+
+            assistant_message = build_assistant_message(reasoning, shell_command)
+            shell_cmd_clean = shell_command.strip()
+            assistant_tag = "assistant_command"
+            if not shell_cmd_clean:
+                assistant_tag = "assistant_empty_command"
+            elif shell_cmd_clean.lower() in ["exit", "quit", "terminate"]:
+                assistant_tag = "assistant_exit"
+            elif shell_cmd_clean.lower() == "relay":
+                assistant_tag = "assistant_relay"
+
+            assistant_event = append_session_event(
+                session,
+                stream="main_agent",
+                tag=assistant_tag,
+                message=assistant_message,
+                parsed={
+                    "reasoning": reasoning,
+                    "shell_command": shell_command,
+                    "extended_reasoning": extended_reasoning,
+                },
+                iteration=iteration,
+                usage=usage,
+                metadata={"included_in_history": True},
+                session_path=session_path,
+            )
+            messages.append(assistant_message)
+
+            if not shell_cmd_clean:
+                empty_command_count += 1
+
+                if empty_command_count < MAX_EMPTY_COMMAND_RETRIES:
+                    print(f"\n⚠️  No command provided - retrying ({empty_command_count}/{MAX_EMPTY_COMMAND_RETRIES})...")
+
+                    retry_tag = "framework_empty_retry"
+                    if empty_command_count == MAX_EMPTY_COMMAND_RETRIES - 1:
+                        retry_tag = "framework_empty_final_warning"
+                        retry_message = {
+                            "role": "user",
+                            "content": (
+                                f"FINAL WARNING: {empty_command_count} consecutive empty commands. One more will prompt for user input.\n"
+                                "If your complex commands are failing to parse, output a simple command like 'pwd' to reset the counter and continue.\n"
+                                "Respond with ONLY a JSON object of the form:\n"
+                                '{"reasoning": "...", "shell_command": "..."}\n'
+                                'If you intend to stop, respond with "exit".'
+                            ),
+                        }
+                    else:
+                        retry_message = {
+                            "role": "user",
+                            "content": (
+                                "Your last response yielded no command after parsing, perhaps it did not contain a valid JSON object with keys "
+                                '"reasoning" and "shell_command", so parsing failed.\n'
+                                "Respond again with ONLY a JSON object of the form:\n"
+                                '{"reasoning": "...", "shell_command": "..."}'
+                            ),
+                        }
+                    messages.append(retry_message)
+                    append_session_event(
+                        session,
+                        stream="main_agent",
+                        tag=retry_tag,
+                        message=retry_message,
+                        iteration=iteration,
+                        metadata={
+                            "assistant_event_index": assistant_event["event_index"],
+                            "included_in_history": True,
+                        },
+                        session_path=session_path,
+                    )
+                    continue
+                else:
+                    print(f"\n⚠️  No command provided {MAX_EMPTY_COMMAND_RETRIES} times")
+                    retry_choice = input("Continue trying? (y/n) [n]: ").strip().lower()
+                    if retry_choice == "y":
+                        empty_command_count = 0  # Reset counter
+                        continue_message = {
+                            "role": "user",
+                            "content": (
+                                "User has requested to continue. Please provide a valid command.\n"
+                                "Respond with ONLY a JSON object of the form:\n"
+                                '{"reasoning": "...", "shell_command": "..."}'
+                            ),
+                        }
+                        messages.append(continue_message)
+                        append_session_event(
+                            session,
+                            stream="main_agent",
+                            tag="framework_empty_user_continue",
+                            message=continue_message,
+                            iteration=iteration,
+                            metadata={
+                                "assistant_event_index": assistant_event["event_index"],
+                                "included_in_history": True,
+                            },
+                            session_path=session_path,
+                        )
+                        continue
+                    else:
+                        print("\n👋 Exiting...")
+                        stopping_reason = "empty_command"
+                        break
+
+            empty_command_count = 0
+
+            if shell_cmd_clean.lower() in ["exit", "quit", "terminate"]:
+                print("\n✅ Agent requested termination. Exiting...")
+                stopping_reason = "agent_exit"
+                break
+
+            if shell_cmd_clean.lower() == "relay":
+                if not use_chap:
+                    print("\n⚠️  CHAP not enabled. Cannot trigger relay.")
+                    print("💡 Restart the agent with CHAP enabled to use relay functionality.")
+                    stopping_reason = "relay_without_chap"
+                    error_message = "Relay requested but CHAP not enabled"
+                    break
+
+                iterations_since_relay = iteration - last_relay_iteration
+                if iterations_since_relay < chap_config["min_iterations_for_relay"]:
+                    iterations_remaining = chap_config["min_iterations_for_relay"] - iterations_since_relay
+                    print(f"\n⚠️  Relay rejected: Too early. Need {iterations_remaining} more iterations.")
+                    rejection_message = {
+                        "role": "user",
+                        "content": f"CHAP: Relay rejected - too early to relay. Minimum {chap_config['min_iterations_for_relay']} iterations required since last relay. Current agent iterations: {iterations_since_relay}. Continue for {iterations_remaining} more iterations.",
+                    }
+                    messages.append(rejection_message)
+                    append_session_event(
+                        session,
+                        stream="main_agent",
+                        tag="framework_relay_rejection",
+                        message=rejection_message,
+                        iteration=iteration,
+                        metadata={
+                            "assistant_event_index": assistant_event["event_index"],
+                            "included_in_history": True,
+                            "iterations_remaining": iterations_remaining,
+                        },
+                        session_path=session_path,
+                    )
+                    continue
+
+                session["relay_triggers"].append(
+                    {
+                        "relay_number": relay_count + 1,
+                        "trigger_type": "manual",
+                        "iteration": iteration,
+                        "reason": "agent_command",
+                        "trigger_event_index": assistant_event["event_index"],
+                    }
+                )
                 persist_session(session, session_path)
 
+                session["metrics"]["total_time"] = time.time() - session_start_time
                 messages = trigger_relay_handoff(
                     session=session,
                     messages=messages,
@@ -634,227 +834,55 @@ def main():
                 # Reset per-agent state
                 last_relay_iteration = iteration
                 chap_80_percent_warning_shown = False
-                continue  # Skip to next iteration with fresh agent
-
-        assistant_message = build_assistant_message(reasoning, shell_command)
-        shell_cmd_clean = shell_command.strip()
-        assistant_tag = "assistant_command"
-        if not shell_cmd_clean:
-            assistant_tag = "assistant_empty_command"
-        elif shell_cmd_clean.lower() in ["exit", "quit", "terminate"]:
-            assistant_tag = "assistant_exit"
-        elif shell_cmd_clean.lower() == "relay":
-            assistant_tag = "assistant_relay"
-
-        assistant_event = append_session_event(
-            session,
-            stream="main_agent",
-            tag=assistant_tag,
-            message=assistant_message,
-            parsed={
-                "reasoning": reasoning,
-                "shell_command": shell_command,
-                "extended_reasoning": extended_reasoning,
-            },
-            iteration=iteration,
-            usage=usage,
-            metadata={"included_in_history": True},
-            session_path=session_path,
-        )
-        messages.append(assistant_message)
-
-        if not shell_cmd_clean:
-            empty_command_count += 1
-
-            if empty_command_count < MAX_EMPTY_COMMAND_RETRIES:
-                print(f"\n⚠️  No command provided - retrying ({empty_command_count}/{MAX_EMPTY_COMMAND_RETRIES})...")
-
-                retry_tag = "framework_empty_retry"
-                if empty_command_count == MAX_EMPTY_COMMAND_RETRIES - 1:
-                    retry_tag = "framework_empty_final_warning"
-                    retry_message = {
-                        "role": "user",
-                        "content": (
-                            f"FINAL WARNING: {empty_command_count} consecutive empty commands. One more will prompt for user input.\n"
-                            "If your complex commands are failing to parse, output a simple command like 'pwd' to reset the counter and continue.\n"
-                            "Respond with ONLY a JSON object of the form:\n"
-                            '{"reasoning": "...", "shell_command": "..."}\n'
-                            'If you intend to stop, respond with "exit".'
-                        ),
-                    }
-                else:
-                    retry_message = {
-                        "role": "user",
-                        "content": (
-                            "Your last response yielded no command after parsing, perhaps it did not contain a valid JSON object with keys "
-                            '"reasoning" and "shell_command", so parsing failed.\n'
-                            "Respond again with ONLY a JSON object of the form:\n"
-                            '{"reasoning": "...", "shell_command": "..."}'
-                        ),
-                    }
-                messages.append(retry_message)
-                append_session_event(
-                    session,
-                    stream="main_agent",
-                    tag=retry_tag,
-                    message=retry_message,
-                    iteration=iteration,
-                    metadata={
-                        "assistant_event_index": assistant_event["event_index"],
-                        "included_in_history": True,
-                    },
-                    session_path=session_path,
-                )
-                continue
-            else:
-                print(f"\n⚠️  No command provided {MAX_EMPTY_COMMAND_RETRIES} times")
-                retry_choice = input("Continue trying? (y/n) [n]: ").strip().lower()
-                if retry_choice == "y":
-                    empty_command_count = 0  # Reset counter
-                    continue_message = {
-                        "role": "user",
-                        "content": (
-                            "User has requested to continue. Please provide a valid command.\n"
-                            "Respond with ONLY a JSON object of the form:\n"
-                            '{"reasoning": "...", "shell_command": "..."}'
-                        ),
-                    }
-                    messages.append(continue_message)
-                    append_session_event(
-                        session,
-                        stream="main_agent",
-                        tag="framework_empty_user_continue",
-                        message=continue_message,
-                        iteration=iteration,
-                        metadata={
-                            "assistant_event_index": assistant_event["event_index"],
-                            "included_in_history": True,
-                        },
-                        session_path=session_path,
-                    )
-                    continue
-                else:
-                    print("\n👋 Exiting...")
-                    stopping_reason = "empty_command"
-                    break
-
-        empty_command_count = 0
-
-        if shell_cmd_clean.lower() in ["exit", "quit", "terminate"]:
-            print("\n✅ Agent requested termination. Exiting...")
-            stopping_reason = "agent_exit"
-            break
-
-        if shell_cmd_clean.lower() == "relay":
-            if not use_chap:
-                print("\n⚠️  CHAP not enabled. Cannot trigger relay.")
-                print("💡 Restart the agent with CHAP enabled to use relay functionality.")
-                stopping_reason = "relay_without_chap"
-                error_message = "Relay requested but CHAP not enabled"
-                break
-
-            iterations_since_relay = iteration - last_relay_iteration
-            if iterations_since_relay < chap_config['min_iterations_for_relay']:
-                iterations_remaining = chap_config['min_iterations_for_relay'] - iterations_since_relay
-                print(f"\n⚠️  Relay rejected: Too early. Need {iterations_remaining} more iterations.")
-                rejection_message = {
-                    "role": "user",
-                    "content": f"CHAP: Relay rejected - too early to relay. Minimum {chap_config['min_iterations_for_relay']} iterations required since last relay. Current agent iterations: {iterations_since_relay}. Continue for {iterations_remaining} more iterations."
-                }
-                messages.append(rejection_message)
-                append_session_event(
-                    session,
-                    stream="main_agent",
-                    tag="framework_relay_rejection",
-                    message=rejection_message,
-                    iteration=iteration,
-                    metadata={
-                        "assistant_event_index": assistant_event["event_index"],
-                        "included_in_history": True,
-                        "iterations_remaining": iterations_remaining,
-                    },
-                    session_path=session_path,
-                )
                 continue
 
-            session['relay_triggers'].append({
-                'relay_number': relay_count + 1,
-                'trigger_type': 'manual',
-                'iteration': iteration,
-                'reason': 'agent_command',
-                'trigger_event_index': assistant_event["event_index"],
-            })
-            persist_session(session, session_path)
+            print("\n🤖 Executing...")
+            success, output, exit_code = execute_command(container, shell_command, COMMAND_TIMEOUT_SECONDS)
 
-            session['metrics']['total_time'] = time.time() - session_start_time
-            messages = trigger_relay_handoff(
-                session=session,
-                messages=messages,
-                model_name=selected_model,
-                environment_mode=environment_mode,
-                target_info=target_ip,
-                custom_instructions=custom_instructions,
-                current_iteration=iteration,
-                agent_ips=agent_ips,
-                local_arch=local_arch,
+            llm_output = truncate_output(output, MAX_OUTPUT_LENGTH)
+
+            print("\n📤 Output:")
+            print(llm_output)
+            if not success:
+                print(f"⚠️  Exit code: {exit_code}")
+
+            result_content = f"Command executed with exit code {exit_code}. Output:\n{llm_output}"
+
+            # Show CHAP 80% warning ONCE when threshold is crossed
+            if use_chap and token_limit_for_agent > 0:
+                if not chap_80_percent_warning_shown and token_usage_percentage >= 80:
+                    result_content += "\n\nCHAP: 80% of tokens used, auto-relay at 100%"
+                    chap_80_percent_warning_shown = True
+
+            result_message = {"role": "user", "content": result_content}
+            messages.append(result_message)
+            append_session_event(
+                session,
+                stream="main_agent",
+                tag="framework_command_result",
+                message=result_message,
+                parsed={
+                    "exit_code": exit_code,
+                    "output": llm_output,
+                },
+                iteration=iteration,
+                metadata={
+                    "assistant_event_index": assistant_event["event_index"],
+                    "included_in_history": True,
+                    "success": success,
+                },
                 session_path=session_path,
             )
-            relay_count += 1
 
-            # Reset per-agent state
-            last_relay_iteration = iteration
-            chap_80_percent_warning_shown = False
-            continue
-
-        print(f"\n🤖 Executing...")
-        success, output, exit_code = execute_command(container, shell_command, COMMAND_TIMEOUT_SECONDS)
-
-        llm_output = truncate_output(output, MAX_OUTPUT_LENGTH)
-
-        print(f"\n📤 Output:")
-        print(llm_output)
-        if not success:
-            print(f"⚠️  Exit code: {exit_code}")
-
-        result_content = f"Command executed with exit code {exit_code}. Output:\n{llm_output}"
-
-        # Show CHAP 80% warning ONCE when threshold is crossed
-        if use_chap and token_limit_for_agent > 0:
-            if not chap_80_percent_warning_shown and token_usage_percentage >= 80:
-                result_content += "\n\nCHAP: 80% of tokens used, auto-relay at 100%"
-                chap_80_percent_warning_shown = True
-
-        result_message = {
-            "role": "user",
-            "content": result_content
-        }
-        messages.append(result_message)
-        append_session_event(
-            session,
-            stream="main_agent",
-            tag="framework_command_result",
-            message=result_message,
-            parsed={
-                "exit_code": exit_code,
-                "output": llm_output,
-            },
-            iteration=iteration,
-            metadata={
-                "assistant_event_index": assistant_event["event_index"],
-                "included_in_history": True,
-                "success": success,
-            },
-            session_path=session_path,
-        )
-
-        iteration += 1
-        session["metrics"]["total_iterations"] = iteration
-        persist_session(session, session_path)
-        set_iteration(iteration)
+            iteration += 1
+            session["metrics"]["total_iterations"] = iteration
+            persist_session(session, session_path)
+            set_iteration(iteration)
 
     except Exception as e:
         print(f"\n❌ Unexpected error: {e}")
         import traceback
+
         traceback.print_exc()
         if stopping_reason is None:
             stopping_reason = "crash"

@@ -3,9 +3,11 @@ Discord Integration - Experiment Messages
 Handles experiment-level notifications (start, complete, interrupted, error).
 """
 
+from typing import Any
+
 import discord
-from typing import Dict, Any, List
-from .core import _safe_send, _create_embed
+
+from .core import _create_embed, _safe_send
 
 
 def send_experiment_start_message(channel_id, experiment_id: str, config: dict) -> bool:
@@ -64,17 +66,21 @@ def send_experiment_start_message(channel_id, experiment_id: str, config: dict) 
         fields=[
             {"name": "Model", "value": model, "inline": True},
             {"name": "CHAP Enabled", "value": "✅ Yes" if chap_enabled else "❌ No", "inline": True},
-            {"name": "Challenge Count", "value": str(len(challenges) if isinstance(challenges, list) else 0), "inline": True},
+            {
+                "name": "Challenge Count",
+                "value": str(len(challenges) if isinstance(challenges, list) else 0),
+                "inline": True,
+            },
             {"name": "Max Iterations", "value": str(max_iterations), "inline": True},
             {"name": "Max Cost", "value": f"${max_cost:.2f}", "inline": True},
-            {"name": "Challenges", "value": challenges_str, "inline": False}
-        ]
+            {"name": "Challenges", "value": challenges_str, "inline": False},
+        ],
     )
 
     return _safe_send(channel_id, embed=embed)
 
 
-def send_experiment_complete_message(channel_id, results: List[Dict[str, Any]], metadata: dict) -> bool:
+def send_experiment_complete_message(channel_id, results: list[dict[str, Any]], metadata: dict) -> bool:
     """
     Send experiment completion summary.
 
@@ -143,17 +149,21 @@ def send_experiment_complete_message(channel_id, results: List[Dict[str, Any]], 
 
     # Create embed
     embed = _create_embed(
-        title=f"🏁 Experiment Complete",
+        title="🏁 Experiment Complete",
         description=description,
         color=color,
         fields=[
-            {"name": "Success Rate", "value": f"{successful}/{total} ({(successful/total*100) if total > 0 else 0:.1f}%)", "inline": True},
+            {
+                "name": "Success Rate",
+                "value": f"{successful}/{total} ({(successful / total * 100) if total > 0 else 0:.1f}%)",
+                "inline": True,
+            },
             {"name": "Valid Flags", "value": f"🏁 {valid_flags}/{total}", "inline": True},
             {"name": "Total Cost", "value": f"💰 ${total_cost:.2f}", "inline": True},
             {"name": "Total Time", "value": f"⏱️ {time_str}", "inline": True},
             {"name": "Successful", "value": f"✅ {successful}", "inline": True},
-            {"name": "Failed", "value": f"❌ {failed}", "inline": True}
-        ]
+            {"name": "Failed", "value": f"❌ {failed}", "inline": True},
+        ],
     )
 
     return _safe_send(channel_id, embed=embed)
@@ -180,7 +190,7 @@ def send_experiment_interrupted_message(channel_id, partial_results: int, total_
         color=discord.Color.orange(),
         fields=[
             {"name": "Progress", "value": f"{partial_results}/{total_challenges} challenges completed", "inline": False}
-        ]
+        ],
     )
 
     return _safe_send(channel_id, embed=embed)
@@ -211,8 +221,8 @@ def send_experiment_error_message(channel_id, error_msg: str, partial_results: i
         color=discord.Color.red(),
         fields=[
             {"name": "Error", "value": f"```{error_msg}```", "inline": False},
-            {"name": "Completed", "value": f"{partial_results} challenges", "inline": False}
-        ]
+            {"name": "Completed", "value": f"{partial_results} challenges", "inline": False},
+        ],
     )
 
     return _safe_send(channel_id, embed=embed)

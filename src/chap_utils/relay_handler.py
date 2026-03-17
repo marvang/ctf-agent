@@ -3,31 +3,32 @@ Relay handler for Context Handoff Protocol (CHAP).
 Orchestrates the handoff process between agent instances.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Any
+
 from src.chap_utils.protocol_generator import generate_relay_protocol
+from src.llm_utils.prompt_builder import build_relay_messages
+from src.utils.environment import EnvironmentType, LocalArch
 from src.utils.state_manager import (
     add_relay_protocol,
     append_session_event,
-    increment_agent_number,
     get_current_agent_tokens,
+    increment_agent_number,
     persist_session,
 )
-from src.llm_utils.prompt_builder import build_relay_messages
-from src.utils.environment import EnvironmentType, LocalArch
 
 
 def trigger_relay_handoff(
-    session: Dict[str, Any],
-    messages: List[Dict[str, str]],
+    session: dict[str, Any],
+    messages: list[dict[str, str]],
     model_name: str,
     environment_mode: EnvironmentType,
     target_info: str,
     custom_instructions: str,
     current_iteration: int,
-    agent_ips: Optional[dict] = None,
+    agent_ips: dict | None = None,
     local_arch: LocalArch | None = None,
     session_path: str | None = None,
-) -> List[Dict[str, str]]:
+) -> list[dict[str, str]]:
     """
     Executes relay handoff:
     1. Generate protocol from current history
@@ -52,7 +53,7 @@ def trigger_relay_handoff(
 
     agent_tokens = get_current_agent_tokens(session)
 
-    print(f"\n🔄 Initiating relay handoff...")
+    print("\n🔄 Initiating relay handoff...")
     print(f"📊 Current agent: Agent {session['agent_number']}")
     print(f"💰 Agent token usage: {agent_tokens:,} tokens")
     print(f"💰 Total session tokens: {session['metrics']['total_tokens']:,} tokens")
@@ -60,7 +61,7 @@ def trigger_relay_handoff(
     print(f"🕒 Total time: {session['metrics']['total_time']:.2f} seconds")
     print(f"💵 Cost: ${session['metrics']['total_cost']:.4f}")
 
-    print(f"\n📝 Generating relay protocol...")
+    print("\n📝 Generating relay protocol...")
     try:
         protocol = generate_relay_protocol(
             messages,
@@ -68,7 +69,7 @@ def trigger_relay_handoff(
             model_name,
             current_iteration=current_iteration,
         )
-        print(f"✅ Protocol generated successfully")
+        print("✅ Protocol generated successfully")
         print(f"📄 Protocol content:\n{protocol['protocol_content']}\n")
     except Exception as e:
         print(f"❌ Error generating protocol: {e}")
@@ -111,9 +112,9 @@ def trigger_relay_handoff(
     if session_path:
         persist_session(session, session_path)
 
-    print(f"\n✨ Relay handoff complete!")
+    print("\n✨ Relay handoff complete!")
     print(f"🤖 Now operating as Agent {new_agent_number}")
     print(f"📚 Carrying forward {len(session['relay_protocols'])} protocol(s)")
-    print("="*60)
+    print("=" * 60)
 
     return new_messages

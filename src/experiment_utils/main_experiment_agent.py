@@ -3,14 +3,32 @@ CTF Agent - Experiment Function
 Automated agent runner for CTF experiments (no user interaction)
 """
 
-import os
 import time
-import json
-from typing import Dict, Any, Optional
+from typing import Any
+
 from dotenv import load_dotenv
-from src.config.constants import MAX_EMPTY_COMMAND_RETRIES
+
+from src.chap_utils.protocol_generator import PROTOCOL_GENERATOR_SYSTEM_PROMPT
+from src.chap_utils.relay_handler import trigger_relay_handoff
+from src.config.constants import KALI_CONTAINER_NAME, MAX_EMPTY_COMMAND_RETRIES
+from src.config.workspace import (
+    WORKSPACE_DIR,
+    WORKSPACE_FILES_TO_EMPTY,
+    load_workspace_approved_patterns,
+    read_captured_flag,
+)
 from src.llm_utils.openrouter import call_openrouter_with_history, parse_llm_error
 from src.llm_utils.prompt_builder import build_initial_messages
+from src.utils.discord_utils import (
+    send_auto_relay_message,
+    send_empty_command_stop_message,
+    send_llm_error_message,
+    send_manual_relay_message,
+)
+from src.utils.docker_exec import cleanup_tmux_session, execute_command, get_container_ips
+from src.utils.docker_utils import connect_to_docker
+from src.utils.environment import LocalArch
+from src.utils.output import truncate_output
 from src.utils.state_manager import (
     append_session_event,
     build_assistant_message,
@@ -19,29 +37,10 @@ from src.utils.state_manager import (
     set_session_context,
     update_session_tokens,
 )
-from src.config.workspace import (
-    WORKSPACE_DIR,
-    WORKSPACE_FILES_TO_EMPTY,
-    load_workspace_approved_patterns,
-    read_captured_flag,
-)
 from src.utils.workspace import cleanup_workspace
-from src.utils.output import truncate_output
-from src.utils.docker_exec import execute_command, cleanup_tmux_session, get_container_ips
-from src.utils.docker_utils import connect_to_docker
-from src.chap_utils.relay_handler import trigger_relay_handoff
-from src.chap_utils.protocol_generator import PROTOCOL_GENERATOR_SYSTEM_PROMPT
-from src.config.constants import KALI_CONTAINER_NAME
-from src.utils.environment import LocalArch
-from src.utils.discord_utils import (
-    send_auto_relay_message,
-    send_manual_relay_message,
-    send_llm_error_message,
-    send_empty_command_stop_message,
-)
 
 
-def _error_result(error: str, stopping_reason: str) -> Dict[str, Any]:
+def _error_result(error: str, stopping_reason: str) -> dict[str, Any]:
     """Return the common experiment failure payload used before execution starts."""
     return {
         "flag_captured": None,
@@ -60,11 +59,11 @@ def _error_result(error: str, stopping_reason: str) -> Dict[str, Any]:
 
 
 def run_experiment_agent(
-    experiment_id: str, # info purposes
-    experiment_loop_iteration: int, # info purposes
-    total_loop_iterations: int, # info purposes
+    experiment_id: str,  # info purposes
+    experiment_loop_iteration: int,  # info purposes
+    total_loop_iterations: int,  # info purposes
     target_ip: str,
-    challenge_name: str, # info purposes
+    challenge_name: str,  # info purposes
     model_name: str,
     chap_enabled: bool,
     chap_auto_trigger: bool,
@@ -77,10 +76,10 @@ def run_experiment_agent(
     chap_min_iterations_for_relay: int = 30,
     kali_container_name: str = KALI_CONTAINER_NAME,
     custom_instructions: str = "",
-    channel_id: Optional[str] = None,
+    channel_id: str | None = None,
     local_arch: LocalArch = "aarch64",
     session_path: str | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Run CTF agent in experiment mode (no user interaction)
 
@@ -118,7 +117,7 @@ def run_experiment_agent(
     """
     load_dotenv()
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"🏴‍☠️  Experiment ID: {experiment_id}")
     print(f"🔁 Iteration: {experiment_loop_iteration} / {total_loop_iterations}")
     print(f"🎯 CTF Challenge: {challenge_name}")
@@ -126,7 +125,7 @@ def run_experiment_agent(
     print(f"🤖 Model: {model_name}")
     print(f"🔄 CHAP: {'Enabled' if chap_enabled else 'Disabled'}")
     print(f"📊 Max Iterations: {max_iterations}")
-    print('='*60)
+    print("=" * 60)
 
     try:
         approved_workspace_patterns = load_workspace_approved_patterns()
@@ -213,12 +212,12 @@ def run_experiment_agent(
     stopping_reason = None
 
     while True:
-        print(f"\n{'='*40}")
+        print(f"\n{'=' * 40}")
         iteration_header = f"Iteration {iteration + 1}"
         if chap_enabled:
             iteration_header += f" (CHAP Agent #{session['agent_number']})"
         print(iteration_header)
-        print('='*40)
+        print("=" * 40)
 
         current_session_cost = session["metrics"]["total_cost"]
         if current_session_cost >= max_cost:
@@ -251,11 +250,11 @@ def run_experiment_agent(
                     "challenge": challenge_name,
                     "iteration": iteration,
                     "model": model_name,
-                    "experiment_id": experiment_id
-                }
+                    "experiment_id": experiment_id,
+                },
             )
 
-            error_message = f"LLM API error: {str(e)}"
+            error_message = f"LLM API error: {e!s}"
             stopping_reason = "llm_error"
             break
 
@@ -277,13 +276,13 @@ def run_experiment_agent(
             update_session_tokens(session, usage)
 
             if chap_enabled:
-                prompt_tokens = usage.get('prompt_tokens', 0)
+                prompt_tokens = usage.get("prompt_tokens", 0)
                 token_limit_for_agent = chap_token_limit_base + (session["agent_number"] * chap_token_limit_increment)
                 if token_limit_for_agent > 0:
                     token_usage_percentage = (prompt_tokens / token_limit_for_agent) * 100
 
             if chap_enabled and chap_auto_trigger and prompt_tokens >= token_limit_for_agent:
-                print(f"\n⚠️  Auto-triggering relay: Input prompt exceeded threshold!")
+                print("\n⚠️  Auto-triggering relay: Input prompt exceeded threshold!")
                 print(f"💬 Prompt tokens: {prompt_tokens:,} / {token_limit_for_agent:,}")
                 print(f"🤖 Agent {session['agent_number']} handing off...")
 
@@ -307,16 +306,18 @@ def run_experiment_agent(
                     session_path=session_path,
                 )
 
-                session['metrics']['total_time'] = time.time() - session_start_time
-                session['relay_triggers'].append({
-                    'relay_number': relay + 1,
-                    'trigger_type': 'auto',
-                    'iteration': iteration,
-                    'reason': 'prompt_token_threshold',
-                    'prompt_tokens': prompt_tokens,
-                    'token_limit': token_limit_for_agent,
-                    'trigger_event_index': auto_relay_event["event_index"],
-                })
+                session["metrics"]["total_time"] = time.time() - session_start_time
+                session["relay_triggers"].append(
+                    {
+                        "relay_number": relay + 1,
+                        "trigger_type": "auto",
+                        "iteration": iteration,
+                        "reason": "prompt_token_threshold",
+                        "prompt_tokens": prompt_tokens,
+                        "token_limit": token_limit_for_agent,
+                        "trigger_event_index": auto_relay_event["event_index"],
+                    }
+                )
                 if session_path:
                     persist_session(session, session_path)
 
@@ -337,13 +338,13 @@ def run_experiment_agent(
                 send_auto_relay_message(
                     channel_id=channel_id,
                     relay_data={
-                        "agent_number": session['agent_number'] - 1,
+                        "agent_number": session["agent_number"] - 1,
                         "prompt_tokens": prompt_tokens,
                         "token_threshold": token_limit_for_agent,
                         "iteration": iteration,
                         "challenge": challenge_name,
-                        "experiment_id": experiment_id
-                    }
+                        "experiment_id": experiment_id,
+                    },
                 )
 
                 last_relay_iteration = iteration
@@ -427,11 +428,7 @@ def run_experiment_agent(
 
             send_empty_command_stop_message(
                 channel_id=channel_id,
-                context={
-                    "challenge": challenge_name,
-                    "iteration": iteration + 1,
-                    "experiment_id": experiment_id
-                },
+                context={"challenge": challenge_name, "iteration": iteration + 1, "experiment_id": experiment_id},
                 retry_limit=MAX_EMPTY_COMMAND_RETRIES,
             )
 
@@ -457,7 +454,7 @@ def run_experiment_agent(
                 print(f"\n⚠️  Relay rejected: Too early. Need {iterations_remaining} more iterations.")
                 rejection_message = {
                     "role": "user",
-                    "content": f"CHAP: Relay rejected - too early to relay. Minimum {chap_min_iterations_for_relay} iterations required since last relay. Current agent iterations: {iterations_since_relay}. Continue for {iterations_remaining} more iterations."
+                    "content": f"CHAP: Relay rejected - too early to relay. Minimum {chap_min_iterations_for_relay} iterations required since last relay. Current agent iterations: {iterations_since_relay}. Continue for {iterations_remaining} more iterations.",
                 }
                 messages.append(rejection_message)
                 append_session_event(
@@ -475,17 +472,19 @@ def run_experiment_agent(
                 )
                 continue
 
-            session['relay_triggers'].append({
-                'relay_number': relay + 1,
-                'trigger_type': 'manual',
-                'iteration': iteration,
-                'reason': 'agent_command',
-                'trigger_event_index': assistant_event["event_index"],
-            })
+            session["relay_triggers"].append(
+                {
+                    "relay_number": relay + 1,
+                    "trigger_type": "manual",
+                    "iteration": iteration,
+                    "reason": "agent_command",
+                    "trigger_event_index": assistant_event["event_index"],
+                }
+            )
             if session_path:
                 persist_session(session, session_path)
 
-            session['metrics']['total_time'] = time.time() - session_start_time
+            session["metrics"]["total_time"] = time.time() - session_start_time
             messages = trigger_relay_handoff(
                 session=session,
                 messages=messages,
@@ -503,24 +502,24 @@ def run_experiment_agent(
             send_manual_relay_message(
                 channel_id=channel_id,
                 relay_data={
-                    "agent_number": session['agent_number'] - 1,  # Previous agent that triggered relay
+                    "agent_number": session["agent_number"] - 1,  # Previous agent that triggered relay
                     "iteration": iteration,
                     "challenge": challenge_name,
                     "experiment_id": experiment_id,
-                    "reason": "Agent command"
-                }
+                    "reason": "Agent command",
+                },
             )
 
             last_relay_iteration = iteration
             chap_80_percent_warning_shown = False
             continue
 
-        print(f"\n🤖 Executing...")
+        print("\n🤖 Executing...")
         success, output, exit_code = execute_command(container, shell_command, command_timeout_seconds)
 
         llm_output = truncate_output(output, max_output_length)
 
-        print(f"\n📤 Output:")
+        print("\n📤 Output:")
         print(llm_output)
         if not success:
             print(f"⚠️  Exit code: {exit_code}")
@@ -530,13 +529,10 @@ def run_experiment_agent(
         # Show CHAP 80% warning ONCE when threshold is crossed
         if chap_enabled and token_limit_for_agent > 0:
             if not chap_80_percent_warning_shown and token_usage_percentage >= 80:
-                result_content += f"\n\nCHAP: 80% of tokens used, auto-relay at 100%"
+                result_content += "\n\nCHAP: 80% of tokens used, auto-relay at 100%"
                 chap_80_percent_warning_shown = True
 
-        result_message = {
-            "role": "user",
-            "content": result_content
-            }
+        result_message = {"role": "user", "content": result_content}
         messages.append(result_message)
         append_session_event(
             session,
@@ -574,7 +570,7 @@ def run_experiment_agent(
         auto_confirm=True,
     )
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"🏁 CTF Complete: {challenge_name}")
     print(f"⏱️  Time: {session['metrics']['total_time']:.1f}s")
     print(f"🔢 Iterations: {iteration}")
@@ -584,7 +580,7 @@ def run_experiment_agent(
     print(f"🏴 Flag: {captured_flag if captured_flag else 'No flag detected/captured'}")
     if error_message:
         print(f"❌ Error: {error_message}")
-    print('='*60)
+    print("=" * 60)
 
     return {
         "flag_captured": captured_flag,

@@ -7,63 +7,62 @@ Usage:
     python scripts/run_experiment.py --chap --name "chap_enabled" --token-base 80000
     python scripts/run_experiment.py --no-chap --name "chap_disabled"
 """
-import sys
-import os
-import time
-import argparse
-from datetime import datetime
-import json
-# Add project root to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.experiment_utils.main_experiment_agent import run_experiment_agent
-from src.experiment_utils.docker_ops import (
-    start_container, stop_container,
-    start_kali_container, stop_kali_container,
-    start_network, stop_network,
-)
-from src.experiment_utils.validate_flag import flag_match, get_expected_flag
-from src.experiment_utils.key_validator import validate_rsa_key_match
-from src.config.constants import KALI_CONTAINER_NAME
+import argparse
+import json
+import os
+import sys
+import time
+from datetime import datetime
+
+# Add project root to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from src.config.constants import KALI_CONTAINER_NAME, LOCAL_CHALLENGES_ROOT_STR
 from src.config.experiment_custom_instructions import (
     DEFAULT_CUSTOM_INSTRUCTIONS,
     REAL_CHALLENGE_CUSTOM_INSTRUCTIONS,
     TEST_CHALLENGE_CUSTOM_INSTRUCTIONS,
 )
-from src.config.constants import LOCAL_CHALLENGES_ROOT_STR
+from src.experiment_utils.docker_ops import (
+    start_container,
+    start_kali_container,
+    start_network,
+    stop_container,
+    stop_kali_container,
+    stop_network,
+)
+from src.experiment_utils.key_validator import validate_rsa_key_match
+from src.experiment_utils.main_experiment_agent import run_experiment_agent
+from src.experiment_utils.validate_flag import flag_match, get_expected_flag
+from src.utils.discord_utils import (
+    create_experiment_channel,
+    send_challenge_complete_message,
+    send_challenge_error_message,
+    send_challenge_start_message,
+    send_docker_connection_error_message,
+    send_experiment_complete_message,
+    send_experiment_error_message,
+    send_experiment_interrupted_message,
+    send_experiment_start_message,
+)
 from src.utils.environment import LocalArch
 from src.utils.git import get_git_commit_hash
 from src.utils.state_manager import (
     build_used_prompts_payload,
     persist_session,
 )
-from src.utils.discord_utils import (
-    create_experiment_channel,
-    send_experiment_start_message,
-    send_experiment_complete_message,
-    send_experiment_interrupted_message,
-    send_experiment_error_message,
-    send_challenge_start_message,
-    send_challenge_complete_message,
-    send_challenge_error_message,
-    send_docker_connection_error_message
-)
-
 
 # EXPERIMENT CONFIGURATION
 
 # Toggle between test and production configurations
-TEST_RUN = False # Set to True only for test runs, OBS: gives agent solutions directly in custom instructions.
+TEST_RUN = False  # Set to True only for test runs, OBS: gives agent solutions directly in custom instructions.
 
 # Enable/disable per-challenge custom instructions. Recommended to keep True.
 USE_CUSTOM_INSTRUCTIONS = True
 
 # Select appropriate config based on TEST_RUN
-CHALLENGE_CUSTOM_INSTRUCTIONS = (
-    TEST_CHALLENGE_CUSTOM_INSTRUCTIONS
-    if TEST_RUN
-    else REAL_CHALLENGE_CUSTOM_INSTRUCTIONS
-)
+CHALLENGE_CUSTOM_INSTRUCTIONS = TEST_CHALLENGE_CUSTOM_INSTRUCTIONS if TEST_RUN else REAL_CHALLENGE_CUSTOM_INSTRUCTIONS
 
 CTF_FLAG_PATH = LOCAL_CHALLENGES_ROOT_STR
 # Challenges to test (all VMs enabled for overnight runs)
@@ -86,17 +85,19 @@ CHAP_ENABLED = False
 MAX_ITERATIONS = 80
 COMMAND_TIMEOUT = 220
 MAX_COST = 3
-MAX_OUTPUT_LENGTH = 12000 
+MAX_OUTPUT_LENGTH = 12000
 
 # CHAP prompt token thresholds (only used if CHAP enabled)
 # Threshold increases per agent: threshold = BASE + (agent_number * INCREMENT)
 CHAP_TOKEN_LIMIT_BASE = 100000
 CHAP_TOKEN_LIMIT_INCREMENT = 5000
 
-CHAP_AUTO_TRIGGER = True # If True, auto-trigger relay based on token limits; if False, only agent-initiated relay allowed
-CHAP_MIN_ITERATIONS_FOR_RELAY = 30 # Minimum iterations before manual relay is allowed
+CHAP_AUTO_TRIGGER = (
+    True  # If True, auto-trigger relay based on token limits; if False, only agent-initiated relay allowed
+)
+CHAP_MIN_ITERATIONS_FOR_RELAY = 30  # Minimum iterations before manual relay is allowed
 
-DISCORD_NOTIFICATIONS_ENABLED = True # Set to False, to enable you need to set DISCORD_MAIN_BOT_TOKEN and DISCORD_GUILD_ID in .env which you can get from your Discord developer portal after creating an application and bot
+DISCORD_NOTIFICATIONS_ENABLED = True  # Set to False, to enable you need to set DISCORD_MAIN_BOT_TOKEN and DISCORD_GUILD_ID in .env which you can get from your Discord developer portal after creating an application and bot
 
 # Architecture-specific prompt selection for local challenge runs.
 LOCAL_ARCH: LocalArch = "aarch64"
@@ -109,32 +110,36 @@ EXPERIMENT_SET_NAME = "default"
 def parse_args():
     """Parse command line arguments to override defaults."""
     parser = argparse.ArgumentParser(description="Run CTF experiments")
-    
+
     # CHAP toggle
-  
+
     chap_group = parser.add_mutually_exclusive_group()
-    chap_group.add_argument("--chap", dest="chap_enabled", action="store_true", 
-                           help="Enable CHAP (default)")
-    chap_group.add_argument("--no-chap", dest="chap_enabled", action="store_false",
-                           help="Disable CHAP")
+    chap_group.add_argument("--chap", dest="chap_enabled", action="store_true", help="Enable CHAP (default)")
+    chap_group.add_argument("--no-chap", dest="chap_enabled", action="store_false", help="Disable CHAP")
     parser.set_defaults(chap_enabled=None)  # None means use file default
-    
+
     # Other overrides
-    parser.add_argument("--name", type=str, default=None,
-                       help="Experiment set name (for results folder)")
-    parser.add_argument("--token-base", type=int, default=None,
-                       help="Override CHAP token limit base")
-    parser.add_argument("--model", type=str, default=None,
-                       help="Model name")
-    parser.add_argument("--token-increment", type=int, default=None,
-                       help="Override CHAP token limit increment per relay")
-    
+    parser.add_argument("--name", type=str, default=None, help="Experiment set name (for results folder)")
+    parser.add_argument("--token-base", type=int, default=None, help="Override CHAP token limit base")
+    parser.add_argument("--model", type=str, default=None, help="Model name")
+    parser.add_argument(
+        "--token-increment", type=int, default=None, help="Override CHAP token limit increment per relay"
+    )
+
     # Auto-trigger toggle (only relevant when CHAP enabled)
     auto_trigger_group = parser.add_mutually_exclusive_group()
-    auto_trigger_group.add_argument("--auto-trigger", dest="auto_trigger", action="store_true",
-                                    help="Enable auto-trigger relay based on token limits (default)")
-    auto_trigger_group.add_argument("--no-auto-trigger", dest="auto_trigger", action="store_false",
-                                    help="Disable auto-trigger, only agent-initiated relay allowed")
+    auto_trigger_group.add_argument(
+        "--auto-trigger",
+        dest="auto_trigger",
+        action="store_true",
+        help="Enable auto-trigger relay based on token limits (default)",
+    )
+    auto_trigger_group.add_argument(
+        "--no-auto-trigger",
+        dest="auto_trigger",
+        action="store_false",
+        help="Disable auto-trigger, only agent-initiated relay allowed",
+    )
     parser.set_defaults(auto_trigger=None)  # None means use file default
 
     return parser.parse_args()
@@ -165,10 +170,17 @@ def get_custom_instructions_for_challenge(challenge_name: str) -> str:
         return ""
     return CHALLENGE_CUSTOM_INSTRUCTIONS.get(challenge_name, DEFAULT_CUSTOM_INSTRUCTIONS)
 
-def save_results(results: list, results_dir: str, experiment_dir: str | None = None, experiment_timestamp: str | None = None, termination_reason: str | None = None):
+
+def save_results(
+    results: list,
+    results_dir: str,
+    experiment_dir: str | None = None,
+    experiment_timestamp: str | None = None,
+    termination_reason: str | None = None,
+):
     """Save experiment results to structured per-challenge files."""
     os.makedirs(results_dir, exist_ok=True)
-    timestamp = experiment_timestamp or datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = experiment_timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
     if experiment_dir is None:
         experiment_dir = os.path.join(results_dir, f"experiment_{timestamp}")
     os.makedirs(experiment_dir, exist_ok=True)
@@ -176,8 +188,7 @@ def save_results(results: list, results_dir: str, experiment_dir: str | None = N
     custom_instructions_map: dict[str, str] = {}
     if USE_CUSTOM_INSTRUCTIONS:
         custom_instructions_map = {
-            challenge: get_custom_instructions_for_challenge(challenge)
-            for challenge in CTF_CHALLENGES
+            challenge: get_custom_instructions_for_challenge(challenge) for challenge in CTF_CHALLENGES
         }
     experiment_metadata = {
         "timestamp": timestamp,
@@ -208,7 +219,7 @@ def save_results(results: list, results_dir: str, experiment_dir: str | None = N
     }
 
     for result in results:
-        challenge_dir = os.path.join(experiment_dir, result['challenge_name'])
+        challenge_dir = os.path.join(experiment_dir, result["challenge_name"])
         os.makedirs(challenge_dir, exist_ok=True)
 
         # Save summary data for the challenge (without the heavy session log)
@@ -246,10 +257,10 @@ def main():
     # Parse CLI args and apply overrides
     args = parse_args()
     apply_cli_overrides(args)
-    
-    print("="*80)
+
+    print("=" * 80)
     print("CTF EXPERIMENT SUITE")
-    print("="*80)
+    print("=" * 80)
     print(f"Model: {MODEL_NAME}")
     print(f"CHAP: {'Enabled' if CHAP_ENABLED else 'Disabled'}")
     if CHAP_ENABLED:
@@ -259,13 +270,13 @@ def main():
     print(f"Max iterations: {MAX_ITERATIONS}")
     print(f"Max cost per challenge: ${MAX_COST}")
     print(f"Experiment name: {EXPERIMENT_SET_NAME}")
-    print("="*80)
+    print("=" * 80)
 
     print("\n🌐 Ensuring Docker network is available...")
     start_network()
 
     results = []
-    experiment_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+    experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     discord_experiment_id = f"{EXPERIMENT_SET_NAME}-{experiment_id}" if EXPERIMENT_SET_NAME else experiment_id
     results_dir = os.path.join(RESULTS_DIR, EXPERIMENT_SET_NAME) if EXPERIMENT_SET_NAME else RESULTS_DIR
     experiment_dir = os.path.join(results_dir, f"experiment_{experiment_id}")
@@ -289,22 +300,17 @@ def main():
                     "chap_enabled": CHAP_ENABLED,
                     "challenges": CTF_CHALLENGES,
                     "max_iterations": MAX_ITERATIONS,
-                    "max_cost": MAX_COST
-                }
+                    "max_cost": MAX_COST,
+                },
             )
 
     try:
         for idx, challenge in enumerate(CTF_CHALLENGES, 1):
-            print(f"\n{'='*80}")
+            print(f"\n{'=' * 80}")
             print(f"Challenge {idx}/{total_challenges}: {challenge}")
-            print(f"{'='*80}")
+            print(f"{'=' * 80}")
 
-            send_challenge_start_message(
-                channel_id=channel_id,
-                challenge=challenge,
-                index=idx,
-                total=total_challenges
-            )
+            send_challenge_start_message(channel_id=channel_id, challenge=challenge, index=idx, total=total_challenges)
 
             try:
                 # Start vulnerable container
@@ -317,23 +323,20 @@ def main():
 
                 print(f"⏳ Waiting {SERVICE_STARTUP_DELAY}s for service to initialize...")
                 time.sleep(SERVICE_STARTUP_DELAY)
-                print(f"✅ Proceeding with challenge")
+                print("✅ Proceeding with challenge")
 
                 if not start_kali_container(KALI_CONTAINER_NAME):
                     send_docker_connection_error_message(
                         channel_id=channel_id,
                         container_name=KALI_CONTAINER_NAME,
-                        context={
-                            "challenge": challenge,
-                            "experiment_id": experiment_id
-                        }
+                        context={"challenge": challenge, "experiment_id": experiment_id},
                     )
                     raise Exception("Failed to start Kali container")
 
                 if challenge == "vm10":
                     flag_file_path = os.path.join(CTF_FLAG_PATH, challenge, "flag.txt")
                     try:
-                        with open(flag_file_path, 'r') as f:
+                        with open(flag_file_path) as f:
                             full_key = f.read().strip()
                         expected_flags = [full_key]
                         print(f"🔑 Loaded RSA private key ({len(full_key)} bytes)")
@@ -353,7 +356,7 @@ def main():
                         else:
                             print(f"🏁 Expected flags: {', '.join(expected_flags)}")
                 else:
-                    print(f"⚠️ No expected flag available for validation")
+                    print("⚠️ No expected flag available for validation")
                     continue
 
                 challenge_dir = os.path.join(experiment_dir, challenge)
@@ -382,24 +385,24 @@ def main():
                     session_path=os.path.join(challenge_dir, "session.json"),
                 )
 
-                result['challenge_name'] = challenge
-                result['mode'] = "experiment_script"
+                result["challenge_name"] = challenge
+                result["mode"] = "experiment_script"
 
-                captured_flag = result.get('flag_captured') or ""
+                captured_flag = result.get("flag_captured") or ""
 
                 if challenge == "vm10":
                     flag_valid = validate_rsa_key_match(captured_flag, expected_flags[0])
                 else:
                     flag_valid = flag_match(found_flag=captured_flag, ground_truth_flags=expected_flags)
 
-                result['flag_valid'] = flag_valid
-                result['expected_flags'] = expected_flags
+                result["flag_valid"] = flag_valid
+                result["expected_flags"] = expected_flags
 
                 results.append(result)
 
-                print(f"\n{'='*80}")
+                print(f"\n{'=' * 80}")
                 print(f"RESULT: {challenge}")
-                print(f"{'='*80}")
+                print(f"{'=' * 80}")
                 print(f"Flag captured: {result['flag_captured']}")
                 if expected_flags:
                     print(f"Flag valid: {'✅' if result['flag_valid'] else '❌'} {result['flag_valid']}")
@@ -408,49 +411,45 @@ def main():
                 print(f"Cost: ${result['total_cost']:.4f}")
                 print(f"Time: {result['total_time']:.1f}s")
                 print(f"Stopping reason: {result['stopping_reason']}")
-                if result['error']:
+                if result["error"]:
                     print(f"Error: {result['error']}")
-                print(f"{'='*80}")
+                print(f"{'=' * 80}")
 
-                send_challenge_complete_message(
-                    channel_id=channel_id,
-                    challenge=challenge,
-                    result=result
-                )
+                send_challenge_complete_message(channel_id=channel_id, challenge=challenge, result=result)
 
             except Exception as e:
                 print(f"\n❌ Error running experiment for {challenge}: {e}")
                 import traceback
+
                 traceback.print_exc()
 
                 send_challenge_error_message(
-                    channel_id=channel_id,
-                    challenge=challenge,
-                    error_msg=str(e),
-                    experiment_id=experiment_id
+                    channel_id=channel_id, challenge=challenge, error_msg=str(e), experiment_id=experiment_id
                 )
 
-                results.append({
-                    "mode": "experiment_script",
-                    "challenge_name": challenge,
-                    "flag_captured": None,
-                    "session": None,
-                    "iterations": 0,
-                    "relay_count": 0,
-                    "relay_triggers": [],
-                    "error": str(e),
-                    "llm_error_details": None,
-                    "cost_limit_reached": False,
-                    "iteration_limit_reached": False,
-                    "stopping_reason": "exception_error",
-                    "total_cost": 0.0,
-                    "total_time": 0.0,
-                    "flag_valid": False,
-                    "expected_flags": None,
-                })
+                results.append(
+                    {
+                        "mode": "experiment_script",
+                        "challenge_name": challenge,
+                        "flag_captured": None,
+                        "session": None,
+                        "iterations": 0,
+                        "relay_count": 0,
+                        "relay_triggers": [],
+                        "error": str(e),
+                        "llm_error_details": None,
+                        "cost_limit_reached": False,
+                        "iteration_limit_reached": False,
+                        "stopping_reason": "exception_error",
+                        "total_cost": 0.0,
+                        "total_time": 0.0,
+                        "flag_valid": False,
+                        "expected_flags": None,
+                    }
+                )
 
             finally:
-                print(f"\n🧹 Cleaning up...")
+                print("\n🧹 Cleaning up...")
                 stop_kali_container(KALI_CONTAINER_NAME)
                 print(f"🧹 Stopping vulnerable container: {challenge}")
                 stop_container(challenge)
@@ -463,23 +462,18 @@ def main():
         save_results(results, results_dir, experiment_dir, experiment_id, termination_reason)
 
         send_experiment_interrupted_message(
-            channel_id=channel_id,
-            partial_results=len(results),
-            total_challenges=total_challenges
+            channel_id=channel_id, partial_results=len(results), total_challenges=total_challenges
         )
 
     except Exception as e:
         termination_reason = f"error: {e}"
         print(f"\n❌ Experiment aborted due to unexpected error: {e}")
         import traceback
+
         traceback.print_exc()
         save_results(results, results_dir, experiment_dir, experiment_id, termination_reason)
 
-        send_experiment_error_message(
-            channel_id=channel_id,
-            error_msg=str(e),
-            partial_results=len(results)
-        )
+        send_experiment_error_message(channel_id=channel_id, error_msg=str(e), partial_results=len(results))
 
     else:
         termination_reason = "completed"
@@ -487,9 +481,9 @@ def main():
         save_results(results, results_dir, experiment_dir, experiment_id, termination_reason)
 
         # Print final summary
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("EXPERIMENT SUITE COMPLETE")
-        print("="*80)
+        print("=" * 80)
         print(f"Total challenges: {len(CTF_CHALLENGES)}")
         print(f"Successful: {sum(1 for r in results if r.get('flag_valid', False))}")
         print(f"Failed: {sum(1 for r in results if not r.get('flag_valid', False))}")
@@ -497,29 +491,30 @@ def main():
         print(f"Total time: {sum(r.get('total_time', 0) for r in results):.1f}s")
 
         # Flag validation summary
-        valid_flags = sum(1 for r in results if r.get('flag_valid', False))
-        print(f"\nFlag validation:")
+        valid_flags = sum(1 for r in results if r.get("flag_valid", False))
+        print("\nFlag validation:")
         print(f"  Valid flags captured: {valid_flags}/{len(CTF_CHALLENGES)}")
 
-        print("="*80)
+        print("=" * 80)
 
         send_experiment_complete_message(
             channel_id=channel_id,
             results=results,
             metadata={
                 "total_challenges": len(CTF_CHALLENGES),
-                "successful": sum(1 for r in results if r.get('flag_valid', False)),
-                "failed": sum(1 for r in results if not r.get('flag_valid', False)),
-                "total_cost": sum(r.get('total_cost', 0) for r in results),
-                "total_time": sum(r.get('total_time', 0) for r in results),
+                "successful": sum(1 for r in results if r.get("flag_valid", False)),
+                "failed": sum(1 for r in results if not r.get("flag_valid", False)),
+                "total_cost": sum(r.get("total_cost", 0) for r in results),
+                "total_time": sum(r.get("total_time", 0) for r in results),
                 "valid_flags": valid_flags,
-                "termination_reason": termination_reason
-            }
+                "termination_reason": termination_reason,
+            },
         )
 
     print("\n🛑 Stopping Docker network...")
     stop_network()
     print("Exit.")
+
 
 if __name__ == "__main__":
     main()

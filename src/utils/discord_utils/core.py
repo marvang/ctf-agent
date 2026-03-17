@@ -3,11 +3,11 @@ Discord Integration - Core Module
 Handles bot client initialization, channel management, and message sending helpers.
 """
 
+import asyncio
 import os
 import re
-import asyncio
+
 import discord
-from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -56,7 +56,7 @@ def _create_client() -> discord.Client:
     return discord.Client(intents=intents)
 
 
-async def _async_create_channel(experiment_id: str) -> Optional[str]:
+async def _async_create_channel(experiment_id: str) -> str | None:
     """
     Create a new Discord channel for experiment tracking.
 
@@ -89,13 +89,13 @@ async def _async_create_channel(experiment_id: str) -> Optional[str]:
                 print(f"📂 Using category: {category.name}")  # type: ignore[union-attr]
             except Exception as e:
                 print(f"⚠️  Could not fetch category {DISCORD_PARENT_CATEGORY_ID}: {e}")
-                print(f"   Channel will be created without a category")
+                print("   Channel will be created without a category")
 
-        channel_name = re.sub(r'[^a-z0-9_-]', '-', experiment_id.lower())[:100]
+        channel_name = re.sub(r"[^a-z0-9_-]", "-", experiment_id.lower())[:100]
         channel = await guild.create_text_channel(
             name=channel_name,
             category=category,  # type: ignore[arg-type]
-            topic=f"Run {experiment_id}"
+            topic=f"Run {experiment_id}",
         )
 
         print(f"✅ Discord channel created: #{channel.name} (ID: {channel.id})")
@@ -110,7 +110,7 @@ async def _async_create_channel(experiment_id: str) -> Optional[str]:
         await asyncio.sleep(0.25)
 
 
-async def _async_create_challenge_channel(category_id: str, challenge_name: str) -> Optional[str]:
+async def _async_create_challenge_channel(category_id: str, challenge_name: str) -> str | None:
     if not DISCORD_MAIN_BOT_TOKEN or not DISCORD_GUILD_ID:
         return None
 
@@ -133,7 +133,7 @@ async def _async_create_challenge_channel(category_id: str, challenge_name: str)
         channel = await guild.create_text_channel(
             name=channel_name,
             category=category,  # type: ignore[arg-type]
-            topic=f"Live logging for challenge: {challenge_name}"
+            topic=f"Live logging for challenge: {challenge_name}",
         )
 
         print(f"✅ Challenge channel created: #{channel.name} (ID: {channel.id})")
@@ -147,7 +147,9 @@ async def _async_create_challenge_channel(category_id: str, challenge_name: str)
         await asyncio.sleep(0.25)
 
 
-async def _async_send_message(channel_id: str, content: Optional[str] = None, embed: Optional[discord.Embed] = None, bot_type: str = "summary") -> bool:
+async def _async_send_message(
+    channel_id: str, content: str | None = None, embed: discord.Embed | None = None, bot_type: str = "summary"
+) -> bool:
     token = _get_bot_token(bot_type)
     if not token:
         return False
@@ -193,7 +195,7 @@ def _run_async(coro):
         return loop.run_until_complete(coro)
 
 
-def create_experiment_channel(experiment_id: str) -> Optional[str]:
+def create_experiment_channel(experiment_id: str) -> str | None:
     """
     Create a new Discord channel for experiment tracking.
 
@@ -221,7 +223,7 @@ def create_experiment_channel(experiment_id: str) -> Optional[str]:
         return None
 
 
-def create_challenge_channel(category_id: str, challenge_name: str) -> Optional[str]:
+def create_challenge_channel(category_id: str, challenge_name: str) -> str | None:
     if not DISCORD_MAIN_BOT_TOKEN or not DISCORD_GUILD_ID:
         return None
 
@@ -232,7 +234,9 @@ def create_challenge_channel(category_id: str, challenge_name: str) -> Optional[
         return None
 
 
-def _safe_send(channel_id: str, content: Optional[str] = None, embed: Optional[discord.Embed] = None, bot_type: str = "summary") -> bool:
+def _safe_send(
+    channel_id: str, content: str | None = None, embed: discord.Embed | None = None, bot_type: str = "summary"
+) -> bool:
     if not channel_id:
         return False
 
@@ -247,7 +251,7 @@ def _safe_send(channel_id: str, content: Optional[str] = None, embed: Optional[d
         return False
 
 
-def _create_embed(title: str, description: str, color: discord.Color, fields: Optional[list] = None) -> discord.Embed:
+def _create_embed(title: str, description: str, color: discord.Color, fields: list | None = None) -> discord.Embed:
     """
     Helper to create formatted Discord embed.
 
@@ -260,18 +264,10 @@ def _create_embed(title: str, description: str, color: discord.Color, fields: Op
     Returns:
         Discord embed object
     """
-    embed = discord.Embed(
-        title=title,
-        description=description,
-        color=color
-    )
+    embed = discord.Embed(title=title, description=description, color=color)
 
     if fields:
         for field in fields:
-            embed.add_field(
-                name=field.get('name', ''),
-                value=field.get('value', ''),
-                inline=field.get('inline', False)
-            )
+            embed.add_field(name=field.get("name", ""), value=field.get("value", ""), inline=field.get("inline", False))
 
     return embed

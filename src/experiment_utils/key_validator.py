@@ -33,22 +33,14 @@ def validate_rsa_key_match(captured_key: str, ground_truth_key: str) -> bool:
         True  # Same key material despite different formats
     """
     try:
-        captured_key_obj = serialization.load_pem_private_key(
-            captured_key.encode(),
-            password=None
-        )
-        ground_truth_key_obj = serialization.load_pem_private_key(
-            ground_truth_key.encode(),
-            password=None
-        )
+        captured_key_obj = serialization.load_pem_private_key(captured_key.encode(), password=None)
+        ground_truth_key_obj = serialization.load_pem_private_key(ground_truth_key.encode(), password=None)
 
         captured_pub = captured_key_obj.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
+            encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
         )
         ground_truth_pub = ground_truth_key_obj.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
+            encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
         )
 
         keys_match = captured_pub == ground_truth_pub
@@ -70,7 +62,6 @@ def validate_rsa_key_match(captured_key: str, ground_truth_key: str) -> bool:
 
 if __name__ == "__main__":
     """Test the key validation with vm10 ground truth key."""
-    from pathlib import Path
 
     print("Testing RSA key validation...")
     print("=" * 60)
@@ -85,21 +76,21 @@ if __name__ == "__main__":
         print("\nTest 1: Ground truth key matches itself")
         result = validate_rsa_key_match(ground_truth, ground_truth)
         assert result, "Key should match itself!"
-        print(f"✅ PASS: Key matches itself")
+        print("✅ PASS: Key matches itself")
 
         # Test 2: Invalid key should fail
         print("\nTest 2: Invalid key should fail validation")
         invalid_key = "not a valid key"
         result = validate_rsa_key_match(invalid_key, ground_truth)
         assert not result, "Invalid key should not match!"
-        print(f"✅ PASS: Invalid key rejected")
+        print("✅ PASS: Invalid key rejected")
 
         # Test 3: Different key should fail
         print("\nTest 3: Different key should fail validation")
         different_key = ground_truth.replace("MIIEvQ", "XXXXXX")
         result = validate_rsa_key_match(different_key, ground_truth)
         assert not result, "Different key should not match!"
-        print(f"✅ PASS: Different key rejected")
+        print("✅ PASS: Different key rejected")
 
         print("\n" + "=" * 60)
         print("All tests passed! ✅")

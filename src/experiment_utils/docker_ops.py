@@ -22,6 +22,7 @@ _DEFAULT_KALI_NAME: Final[str] = KALI_CONTAINER_NAME
 # Challenge containers
 # ---------------------------------------------------------------------------
 
+
 def start_container(vm_name: str, compose_file: str | Path = LOCAL_CHALLENGES_COMPOSE_FILE) -> str:
     """Start a fresh local challenge container and return its static IP."""
     compose_path = Path(compose_file)
@@ -79,6 +80,7 @@ def stop_container(vm_name: str) -> str:
 # Kali container
 # ---------------------------------------------------------------------------
 
+
 def start_kali_container(container_name: str = _DEFAULT_KALI_NAME) -> bool:
     """Start Kali Linux container for a fresh environment."""
     try:
@@ -122,6 +124,7 @@ def stop_kali_container(container_name: str = _DEFAULT_KALI_NAME) -> bool:
 # Docker network
 # ---------------------------------------------------------------------------
 
+
 def start_network(network_name: str = _NETWORK_NAME, subnet: str = _SUBNET) -> None:
     """Create the Docker network if it does not already exist."""
     exists = subprocess.run(
@@ -148,11 +151,14 @@ def start_network(network_name: str = _NETWORK_NAME, subnet: str = _SUBNET) -> N
 
 def stop_network(network_name: str = _NETWORK_NAME) -> None:
     """Remove the Docker network if it exists, force-disconnecting containers if needed."""
-    if subprocess.run(
-        ["docker", "network", "inspect", network_name],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    ).returncode != 0:
+    if (
+        subprocess.run(
+            ["docker", "network", "inspect", network_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode
+        != 0
+    ):
         return
 
     remove = subprocess.run(
@@ -167,13 +173,15 @@ def stop_network(network_name: str = _NETWORK_NAME) -> None:
     if remove.stderr and "No such network" in remove.stderr:
         return
 
-    if remove.stderr and (
-        "has active endpoints" in remove.stderr or "in use" in remove.stderr
-    ):
+    if remove.stderr and ("has active endpoints" in remove.stderr or "in use" in remove.stderr):
         containers = subprocess.run(
             [
-                "docker", "network", "inspect", network_name,
-                "--format", "{{range $id, $_ := .Containers}}{{$id}}\\n{{end}}",
+                "docker",
+                "network",
+                "inspect",
+                network_name,
+                "--format",
+                "{{range $id, $_ := .Containers}}{{$id}}\\n{{end}}",
             ],
             check=True,
             capture_output=True,
@@ -195,6 +203,4 @@ def stop_network(network_name: str = _NETWORK_NAME) -> None:
         )
         return
 
-    raise RuntimeError(
-        f"Failed to remove network {network_name}: {(remove.stderr or '').strip()}"
-    )
+    raise RuntimeError(f"Failed to remove network {network_name}: {(remove.stderr or '').strip()}")

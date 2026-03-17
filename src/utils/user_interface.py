@@ -1,11 +1,11 @@
 """User interface and input utilities. For main.py"""
+
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Any
 
 from src.config.constants import LOCAL_CHALLENGES_ROOT
 from src.utils.environment import EnvironmentType, LocalArch, VpnEnvironment
-
 
 _LOCAL_CTF_ROOT = LOCAL_CHALLENGES_ROOT
 _CHALLENGE_PATTERN = re.compile(r"^vm(\d+)$")
@@ -44,7 +44,7 @@ _RECOMMENDED_MODELS: list[dict[str, str]] = [
 def print_banner():
     """Display application banner"""
     print("🤖 CTF-AGENT v1.4")
-    print("="*40)
+    print("=" * 40)
 
 
 def discover_local_ctf_challenges(challenges_root: Path = _LOCAL_CTF_ROOT) -> list[str]:
@@ -64,7 +64,7 @@ def discover_local_ctf_challenges(challenges_root: Path = _LOCAL_CTF_ROOT) -> li
     return [name for _, name in challenges]
 
 
-def prompt_environment_selection() -> Tuple[EnvironmentType, Optional[VpnEnvironment]]:
+def prompt_environment_selection() -> tuple[EnvironmentType, VpnEnvironment | None]:
     """Prompt for execution environment."""
     print("\n🌐 Environment:")
     print("1. Local Docker challenge (default)")
@@ -101,6 +101,7 @@ def prompt_local_challenge_selection() -> str:
                 return selected_challenge
         print("⚠️ Invalid challenge selection. Try again.")
 
+
 def prompt_architecture_selection() -> LocalArch:
     """
     Prompt user to select host architecture.
@@ -124,18 +125,16 @@ def prompt_architecture_selection() -> LocalArch:
     return local_arch
 
 
-def prompt_model_selection(default_model: Optional[str] = None) -> str: # TODO: remove default mode, if nothing is selected, just pick the first one as default
+def prompt_model_selection(
+    default_model: str | None = None,
+) -> str:  # TODO: remove default mode, if nothing is selected, just pick the first one as default
     """Prompt the user to choose a recommended model or enter a custom one."""
     custom_index = len(_RECOMMENDED_MODELS) + 1
     default_choice = "1"
 
     if default_model:
         default_match = next(
-            (
-                str(index)
-                for index, model in enumerate(_RECOMMENDED_MODELS, start=1)
-                if model["name"] == default_model
-            ),
+            (str(index) for index, model in enumerate(_RECOMMENDED_MODELS, start=1) if model["name"] == default_model),
             None,
         )
         default_choice = default_match or str(custom_index)
@@ -183,7 +182,7 @@ def prompt_model_selection(default_model: Optional[str] = None) -> str: # TODO: 
         print("⚠️ Invalid model selection. Try again.")
 
 
-def prompt_chap_usage() -> Dict[str, Any]:
+def prompt_chap_usage() -> dict[str, Any]:
     """
     Prompt user for CHAP (Context Handoff Protocol) configuration
 
@@ -199,15 +198,17 @@ def prompt_chap_usage() -> Dict[str, Any]:
     """
     # Default values
     defaults = {
-        'enabled': False,
-        'auto_trigger': True,
-        'token_limit_base': 100000,
-        'token_limit_increment': 5000,
-        'min_iterations_for_relay': 35
+        "enabled": False,
+        "auto_trigger": True,
+        "token_limit_base": 100000,
+        "token_limit_increment": 5000,
+        "min_iterations_for_relay": 35,
     }
 
     print("\n🔄 Context Handoff (CHAP):")
-    print("Enable CHAP: periodic context compaction and relay to fresh instances. This will help manage token limits and maintain performance on longer-running challenges.")
+    print(
+        "Enable CHAP: periodic context compaction and relay to fresh instances. This will help manage token limits and maintain performance on longer-running challenges."
+    )
 
     chap_choice = input("Enable CHAP? (y/n) [y]: ").strip().lower()
     enabled = chap_choice == "y" or chap_choice == ""
@@ -230,20 +231,20 @@ def prompt_chap_usage() -> Dict[str, Any]:
     # Token limit base
     token_base_input = input(f"  Token limit? [{defaults['token_limit_base']}]: ").strip()
     try:
-        token_limit_base = int(token_base_input) if token_base_input else defaults['token_limit_base']
+        token_limit_base = int(token_base_input) if token_base_input else defaults["token_limit_base"]
     except ValueError:
         print(f"  ⚠️ Invalid value, using default: {defaults['token_limit_base']}")
-        token_limit_base = defaults['token_limit_base']
+        token_limit_base = defaults["token_limit_base"]
 
-    token_limit_increment = defaults['token_limit_increment']
-    min_iterations_for_relay = defaults['min_iterations_for_relay']
+    token_limit_increment = defaults["token_limit_increment"]
+    min_iterations_for_relay = defaults["min_iterations_for_relay"]
 
     return {
-        'enabled': True,
-        'auto_trigger': auto_trigger,
-        'token_limit_base': token_limit_base,
-        'token_limit_increment': token_limit_increment,
-        'min_iterations_for_relay': min_iterations_for_relay
+        "enabled": True,
+        "auto_trigger": auto_trigger,
+        "token_limit_base": token_limit_base,
+        "token_limit_increment": token_limit_increment,
+        "min_iterations_for_relay": min_iterations_for_relay,
     }
 
 
@@ -314,13 +315,14 @@ def prompt_custom_instructions() -> str:
         Custom instructions string, or empty string if none provided
     """
     print("\n📝 Initial Instructions:")
-    print("="*40)
+    print("=" * 40)
     custom_instructions = input("Add custom instructions? (press Enter to skip): ").strip()
 
     if custom_instructions:
-        print(f"✅ Custom instructions added")
+        print("✅ Custom instructions added")
 
     return custom_instructions
+
 
 def print_config_summary(target_info: str):
     """
@@ -330,4 +332,4 @@ def print_config_summary(target_info: str):
         target_info: Target description (IP or "Local container")
     """
     print(f"\n⚙️  Target: {target_info}")
-    print("="*40)
+    print("=" * 40)

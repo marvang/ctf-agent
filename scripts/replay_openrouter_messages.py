@@ -10,7 +10,6 @@ import json
 import sys
 from pathlib import Path
 
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.utils.replay import list_replayable_model_calls, rebuild_model_call_messages
@@ -55,7 +54,7 @@ def parse_args() -> argparse.Namespace:
 
 def _load_session(session_path: str) -> dict:
     """Load a saved session JSON file."""
-    with open(session_path, "r", encoding="utf-8") as handle:
+    with open(session_path, encoding="utf-8") as handle:
         return json.load(handle)
 
 

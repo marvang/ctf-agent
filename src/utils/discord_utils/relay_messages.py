@@ -3,12 +3,14 @@ Discord Integration - Relay Messages
 Handles relay handoff notifications (auto and manual).
 """
 
+from typing import Any
+
 import discord
-from typing import Dict, Any
-from .core import _safe_send, _create_embed
+
+from .core import _create_embed, _safe_send
 
 
-def send_auto_relay_message(channel_id, relay_data: Dict[str, Any]) -> bool:
+def send_auto_relay_message(channel_id, relay_data: dict[str, Any]) -> bool:
     """
     Send auto-relay notification (triggered by automated relay logic).
 
@@ -46,7 +48,7 @@ def send_auto_relay_message(channel_id, relay_data: Dict[str, Any]) -> bool:
     fields = [
         {"name": "Current Agent", "value": f"#{agent_number}", "inline": True},
         {"name": "Next Agent", "value": f"#{agent_number + 1}", "inline": True},
-        {"name": "Iteration", "value": str(iteration), "inline": True}
+        {"name": "Iteration", "value": str(iteration), "inline": True},
     ]
 
     if challenge:
@@ -60,13 +62,13 @@ def send_auto_relay_message(channel_id, relay_data: Dict[str, Any]) -> bool:
         title=f"🔄 Auto-Relay: Agent #{agent_number} → Agent #{agent_number + 1}",
         description="Agent context relayed to a fresh instance",
         color=discord.Color.blue(),
-        fields=fields
+        fields=fields,
     )
 
     return _safe_send(channel_id, embed=embed)
 
 
-def send_manual_relay_message(channel_id, relay_data: Dict[str, Any]) -> bool:
+def send_manual_relay_message(channel_id, relay_data: dict[str, Any]) -> bool:
     """
     Send manual relay notification (triggered by agent command).
 
@@ -108,7 +110,7 @@ def send_manual_relay_message(channel_id, relay_data: Dict[str, Any]) -> bool:
         {"name": "Reason", "value": f"🤖 {reason}", "inline": True},
         {"name": "Current Agent", "value": f"#{agent_number}", "inline": True},
         {"name": "Next Agent", "value": f"#{agent_number + 1}", "inline": True},
-        {"name": "Iteration", "value": str(iteration), "inline": True}
+        {"name": "Iteration", "value": str(iteration), "inline": True},
     ]
 
     if challenge:
@@ -122,7 +124,7 @@ def send_manual_relay_message(channel_id, relay_data: Dict[str, Any]) -> bool:
         title=f"🔄 Manual Relay: Agent #{agent_number} → Agent #{agent_number + 1}",
         description="Agent manually requested context relay",
         color=discord.Color.purple(),
-        fields=fields
+        fields=fields,
     )
 
     return _safe_send(channel_id, embed=embed)

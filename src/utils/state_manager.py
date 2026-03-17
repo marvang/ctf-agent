@@ -10,9 +10,10 @@ import copy
 import json
 import os
 import tempfile
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Mapping
+from typing import Any
 
 
 def _utc_timestamp() -> str:
@@ -25,7 +26,7 @@ def _copy_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
     return copy.deepcopy(dict(value))
 
 
-def create_session(model: str, chap_enabled: bool = False) -> Dict[str, Any]:
+def create_session(model: str, chap_enabled: bool = False) -> dict[str, Any]:
     """Create a new session with unique ID and initial state."""
     import uuid
 
@@ -56,7 +57,7 @@ def create_session(model: str, chap_enabled: bool = False) -> Dict[str, Any]:
     return session
 
 
-def set_session_context(session: Dict[str, Any], **context: Any) -> None:
+def set_session_context(session: dict[str, Any], **context: Any) -> None:
     """Store replay and artifact metadata on the session."""
     session.setdefault("context", {})
     for key, value in context.items():
@@ -64,7 +65,7 @@ def set_session_context(session: Dict[str, Any], **context: Any) -> None:
             session["context"][key] = value
 
 
-def update_session_tokens(session: Dict[str, Any], usage: Dict[str, Any]) -> None:
+def update_session_tokens(session: dict[str, Any], usage: dict[str, Any]) -> None:
     """Update session token usage with new usage data."""
     session["metrics"]["total_input_tokens"] += usage.get("prompt_tokens") or 0
     session["metrics"]["total_output_tokens"] += usage.get("completion_tokens") or 0
@@ -72,12 +73,8 @@ def update_session_tokens(session: Dict[str, Any], usage: Dict[str, Any]) -> Non
     session["metrics"]["total_reasoning_tokens"] += (
         usage.get("completion_tokens_details", {}).get("reasoning_tokens") or 0
     )
-    session["metrics"]["total_cached_tokens"] += (
-        usage.get("prompt_tokens_details", {}).get("cached_tokens") or 0
-    )
-    session["metrics"]["total_audio_tokens"] += (
-        usage.get("prompt_tokens_details", {}).get("audio_tokens") or 0
-    )
+    session["metrics"]["total_cached_tokens"] += usage.get("prompt_tokens_details", {}).get("cached_tokens") or 0
+    session["metrics"]["total_audio_tokens"] += usage.get("prompt_tokens_details", {}).get("audio_tokens") or 0
     session["metrics"]["total_cost"] += usage.get("cost") or 0.0
     session["metrics"]["total_upstream_inference_cost"] += (
         usage.get("cost_details", {}).get("upstream_inference_cost") or 0.0
@@ -93,7 +90,7 @@ def build_assistant_message(reasoning: str, shell_command: str) -> dict[str, str
 
 
 def append_session_event(
-    session: Dict[str, Any],
+    session: dict[str, Any],
     *,
     stream: str,
     tag: str,
@@ -105,10 +102,10 @@ def append_session_event(
     usage: Mapping[str, Any] | None = None,
     metadata: Mapping[str, Any] | None = None,
     session_path: str | Path | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Append a replay event and optionally flush the session checkpoint."""
     events = session.setdefault("events", [])
-    event: Dict[str, Any] = {
+    event: dict[str, Any] = {
         "event_index": len(events),
         "timestamp": _utc_timestamp(),
         "stream": stream,
@@ -133,17 +130,17 @@ def append_session_event(
     return event
 
 
-def increment_agent_number(session: Dict[str, Any]) -> None:
+def increment_agent_number(session: dict[str, Any]) -> None:
     """Increment the agent number for relay handoff."""
     session["agent_number"] += 1
 
 
-def add_relay_protocol(session: Dict[str, Any], protocol: Dict[str, Any]) -> None:
+def add_relay_protocol(session: dict[str, Any], protocol: dict[str, Any]) -> None:
     """Add a relay protocol to the session's protocol list."""
     session.setdefault("relay_protocols", []).append(protocol)
 
 
-def get_current_agent_tokens(session: Dict[str, Any]) -> int:
+def get_current_agent_tokens(session: dict[str, Any]) -> int:
     """
     Calculate tokens used by current agent only (excluding previous relays).
 
@@ -163,7 +160,7 @@ def get_current_agent_tokens(session: Dict[str, Any]) -> int:
     return current_total - tokens_at_last_relay
 
 
-def persist_session(session: Dict[str, Any], session_path: str | Path) -> None:
+def persist_session(session: dict[str, Any], session_path: str | Path) -> None:
     """Atomically persist the current session checkpoint to disk."""
     path = Path(session_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -245,9 +242,9 @@ def build_used_prompts_payload(
             system_prompt = message.get("content")
         elif tag == "initial_user_prompt":
             initial_messages.append(_copy_mapping(message))
-        elif tag == "protocol_generator_system_prompt_template" and protocol_generator_system_prompt is None:
-            protocol_generator_system_prompt = message.get("content")
-        elif tag == "protocol_request_system_prompt" and protocol_generator_system_prompt is None:
+        elif (tag == "protocol_generator_system_prompt_template" and protocol_generator_system_prompt is None) or (
+            tag == "protocol_request_system_prompt" and protocol_generator_system_prompt is None
+        ):
             protocol_generator_system_prompt = message.get("content")
         elif tag == "relay_user_prompt":
             relay_number = None
@@ -281,4 +278,3 @@ def build_used_prompts_payload(
         prompt_payload["relay_initial_messages"] = relay_initial_messages
 
     return prompt_payload
-

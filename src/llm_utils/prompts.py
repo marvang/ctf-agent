@@ -4,7 +4,6 @@ from collections.abc import Mapping, Sequence
 
 from src.utils.environment import EnvironmentType, LocalArch, get_environment_label
 
-
 _SYSTEM_PROMPT_INTRO = """You are an elite CTF-agent designed to autonomously perform penetration testing and standard CTF tasks to find flags. You are working in an isolated Docker container. As a penetration-testing agent, treat every target as an experiment: start from concrete hypotheses about how it should be vulnerable, read tool and service output like evidence (not decoration), rigorously verify assumptions about injection points, payload syntax, network reachability and target behavior with small observable tests, then iteratively refine and pivot—changing one variable at a time, watching for callbacks, errors and side effects—so you build a real model of the environment and derive exploits from understanding, not from blindly following canned recipes. Your goal is to identify vulnerabilities, penetrate and exploit the target system until you get the ctf flag."""
 
 
@@ -162,9 +161,7 @@ def build_system_prompt(
     use_chap: bool = False,
 ) -> str:
     """Render the system prompt for the given runtime context."""
-    variant = _SYSTEM_PROMPT_VARIANTS[
-        _resolve_system_prompt_variant(environment_mode, local_arch)
-    ]
+    variant = _SYSTEM_PROMPT_VARIANTS[_resolve_system_prompt_variant(environment_mode, local_arch)]
     prompt = _SYSTEM_PROMPT_TEMPLATE.format(
         intro=_SYSTEM_PROMPT_INTRO,
         execution_environment=variant["execution_environment"],
@@ -250,15 +247,10 @@ def build_initial_user_prompt(
     )
 
     custom_instruction_block = (
-        f"\nADDITIONAL CUSTOM INSTRUCTIONS FROM THE TEAM: {custom_instructions}"
-        if custom_instructions else ""
+        f"\nADDITIONAL CUSTOM INSTRUCTIONS FROM THE TEAM: {custom_instructions}" if custom_instructions else ""
     )
 
-    return (
-        f"{environment_context}\n\n"
-        f"{build_main_init_prompt(use_chap)}"
-        f"{custom_instruction_block}"
-    )
+    return f"{environment_context}\n\n{build_main_init_prompt(use_chap)}{custom_instruction_block}"
 
 
 def format_relay_protocols(protocols: Sequence[Mapping[str, object]]) -> str:
@@ -268,9 +260,7 @@ def format_relay_protocols(protocols: Sequence[Mapping[str, object]]) -> str:
     for i, protocol in enumerate(protocols):
         # Changed to use loop index 'i' instead of dict lookup to avoid static typing errors with 'object'.
         protocol_num = i + 1  # 1-indexed for readability
-        formatted += (
-            f"=== PROTOCOL {protocol_num} - From PENTEST AGENT SHIFT {protocol_num} ===\n\n"
-        )
+        formatted += f"=== PROTOCOL {protocol_num} - From PENTEST AGENT SHIFT {protocol_num} ===\n\n"
         formatted += f"{protocol['protocol_content']}\n\n"
         if i < len(protocols) - 1:
             formatted += "---\n\n"

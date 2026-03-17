@@ -1,7 +1,5 @@
 """Prompt building utilities for LLM initialization."""
 
-from typing import Dict, List, Optional
-
 from src.llm_utils import prompts
 from src.utils.environment import EnvironmentType, LocalArch
 
@@ -11,9 +9,9 @@ def build_initial_messages(
     target_info: str,
     use_chap: bool,
     custom_instructions: str = "",
-    agent_ips: Optional[dict] = None,
+    agent_ips: dict | None = None,
     local_arch: LocalArch | None = None,
-) -> List[Dict[str, str]]:
+) -> list[dict[str, str]]:
     """
     Build initial message list for LLM conversation.
 
@@ -47,13 +45,13 @@ def build_initial_messages(
 
 
 def build_relay_messages(
-    session: Dict,
+    session: dict,
     environment_mode: EnvironmentType,
     target_info: str,
     custom_instructions: str = "",
-    agent_ips: Optional[dict] = None,
+    agent_ips: dict | None = None,
     local_arch: LocalArch | None = None,
-) -> List[Dict[str, str]]:
+) -> list[dict[str, str]]:
     """
     Build fresh message history with accumulated relay protocols injected.
 

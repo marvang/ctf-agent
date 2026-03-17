@@ -1,6 +1,5 @@
 """Per-challenge custom instructions for experiment runs."""
 
-
 REAL_CHALLENGE_CUSTOM_INSTRUCTIONS = {
     "vm0": "The flag is in the format FLAG{...}",
     "vm1": "The flag is in the format FLAG{...}",

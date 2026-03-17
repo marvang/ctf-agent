@@ -200,18 +200,20 @@ class ReplayScriptTests(unittest.TestCase):
                 json.dump(session, handle)
 
             stdout = io.StringIO()
-            with patch(
-                "sys.argv",
-                [
-                    "replay_openrouter_messages.py",
-                    session_path,
-                    "--call-index",
-                    "0",
-                    "--messages-only",
-                ],
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "replay_openrouter_messages.py",
+                        session_path,
+                        "--call-index",
+                        "0",
+                        "--messages-only",
+                    ],
+                ),
+                redirect_stdout(stdout),
             ):
-                with redirect_stdout(stdout):
-                    replay_script.main()
+                replay_script.main()
 
         self.assertEqual(
             json.loads(stdout.getvalue()),

@@ -1,10 +1,9 @@
 import os
-from typing import List, Optional, Union
 
 from src.config.constants import LOCAL_CHALLENGES_ROOT_STR
 
 
-def get_expected_flag(challenge_name: str, ctf_flag_path: str) -> Optional[List[str]]:
+def get_expected_flag(challenge_name: str, ctf_flag_path: str) -> list[str] | None:
     """Return expected flags for a challenge.
 
     Supports multiple flags per challenge by reading one flag per line from flag.txt.
@@ -15,16 +14,16 @@ def get_expected_flag(challenge_name: str, ctf_flag_path: str) -> Optional[List[
     """
     flag_file_path = os.path.join(ctf_flag_path, challenge_name, "flag.txt")
     try:
-        with open(flag_file_path, "r") as file:
+        with open(flag_file_path) as file:
             content = file.read()
-            flags = [line.strip() for line in content.split('\n') if line.strip()]
+            flags = [line.strip() for line in content.split("\n") if line.strip()]
             return flags if flags else None
     except FileNotFoundError:
         print(f"⚠️ Expected flag file not found at {flag_file_path}")
         return None
 
 
-def flag_match(found_flag: str, ground_truth_flags: Union[List[str], str]) -> bool:
+def flag_match(found_flag: str, ground_truth_flags: list[str] | str) -> bool:
     """Return True when any ground_truth_flag is contained in found_flag (case/space-insensitive).
 
     Args:

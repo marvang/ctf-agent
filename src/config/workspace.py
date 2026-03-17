@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 WORKSPACE_DIR = str(_PROJECT_ROOT / "ctf-workspace")

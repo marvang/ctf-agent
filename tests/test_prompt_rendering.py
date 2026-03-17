@@ -77,7 +77,7 @@ class PromptRenderingTests(unittest.TestCase):
             "The target is a remote system reached over VPN.",
             messages[0]["content"],
         )
-        self.assertIn("TOOL: You can execute the command \"relay\"", messages[0]["content"])
+        self.assertIn('TOOL: You can execute the command "relay"', messages[0]["content"])
         self.assertNotIn(
             "CTF target also runs in a container (amd64).",
             messages[0]["content"],
@@ -134,10 +134,20 @@ class ResultMetadataTests(unittest.TestCase):
             session["metrics"]["total_cost"] = 0.0
             session["metrics"]["total_time"] = 1.25
             set_session_context(session, environment_mode="local", target_ip="10.13.37.7")
-            append_session_event(session, stream="main_agent", tag="initial_system_prompt",
-                                 message={"role": "system", "content": "system"}, iteration=0)
-            append_session_event(session, stream="main_agent", tag="initial_user_prompt",
-                                 message={"role": "user", "content": "user"}, iteration=0)
+            append_session_event(
+                session,
+                stream="main_agent",
+                tag="initial_system_prompt",
+                message={"role": "system", "content": "system"},
+                iteration=0,
+            )
+            append_session_event(
+                session,
+                stream="main_agent",
+                tag="initial_user_prompt",
+                message={"role": "user", "content": "user"},
+                iteration=0,
+            )
             main.save_interactive_results(
                 session=session,
                 stopping_reason="agent_exit",
@@ -157,7 +167,7 @@ class ResultMetadataTests(unittest.TestCase):
                 timestamp="20260316_120000",
             )
 
-            with open(os.path.join(temp_dir, "session_summary.json"), "r") as handle:
+            with open(os.path.join(temp_dir, "session_summary.json")) as handle:
                 metadata = json.load(handle)["metadata"]
 
             self.assertTrue(metadata["use_amd64_prompt"])
@@ -224,7 +234,7 @@ class ResultMetadataTests(unittest.TestCase):
                 timestamp="20260316_120000",
             )
 
-            with open(os.path.join(temp_dir, "used_prompts.json"), "r") as handle:
+            with open(os.path.join(temp_dir, "used_prompts.json")) as handle:
                 payload = json.load(handle)
 
         self.assertEqual(payload["system_prompt"], "event system")
@@ -254,7 +264,6 @@ class ResultMetadataTests(unittest.TestCase):
 
                 with open(
                     os.path.join(experiment_dir, "experiment_summary.json"),
-                    "r",
                 ) as handle:
                     metadata = json.load(handle)["metadata"]
 
@@ -323,7 +332,7 @@ class ResultMetadataTests(unittest.TestCase):
                 termination_reason="completed",
             )
 
-            with open(os.path.join(experiment_dir, "vm0", "used_prompts.json"), "r") as handle:
+            with open(os.path.join(experiment_dir, "vm0", "used_prompts.json")) as handle:
                 payload = json.load(handle)
 
         self.assertEqual(payload["system_prompt"], "event system")
@@ -603,7 +612,6 @@ class ProtocolPromptTests(unittest.TestCase):
             "Ignore unverified assistant speculation",
             prompt,
         )
-
 
 
 if __name__ == "__main__":

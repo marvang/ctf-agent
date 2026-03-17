@@ -1,0 +1,39 @@
+# Ruff linter & formatter configuration
+# https://docs.astral.sh/ruff/
+
+target-version = "py310"
+line-length = 120
+
+# Lint only project source code
+extend-exclude = [
+    "local_challenges/",
+    "results/",
+    "ctf-workspace/",
+]
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort (import sorting)
+    "UP",  # pyupgrade (modern Python idioms)
+    "B",   # flake8-bugbear (common pitfalls)
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific rules
+]
+ignore = [
+    "E501",   # line too long — handled case-by-case, not globally
+    "SIM108", # ternary operator — readability preference
+    "RUF001", # ambiguous unicode — intentional in LLM prompt strings
+    "SIM102", # collapsible-if — nested ifs with comments are often clearer
+    "SIM105", # suppressible-exception — try/except/pass is explicit enough
+    "SIM116", # if-else-block-instead-of-dict-lookup — readability preference
+]
+
+[lint.isort]
+known-first-party = ["src"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

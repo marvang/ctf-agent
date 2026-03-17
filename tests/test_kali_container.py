@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import main
 import scripts.run_experiment as run_experiment
-import src.experiment_utils.main_experiment_agent as experiment_agent
 import src.experiment_utils.docker_ops as docker_ops
+import src.experiment_utils.main_experiment_agent as experiment_agent
 import src.utils.docker_utils as docker_utils
 from src.config.constants import KALI_CONTAINER_NAME
 
@@ -19,27 +19,19 @@ class KaliContainerConfigTests(unittest.TestCase):
 
     def test_helper_defaults_use_shared_kali_container_name(self) -> None:
         self.assertEqual(
-            inspect.signature(docker_utils.connect_to_docker)
-            .parameters["kali_container_name"]
-            .default,
+            inspect.signature(docker_utils.connect_to_docker).parameters["kali_container_name"].default,
             KALI_CONTAINER_NAME,
         )
         self.assertEqual(
-            inspect.signature(docker_ops.start_kali_container)
-            .parameters["container_name"]
-            .default,
+            inspect.signature(docker_ops.start_kali_container).parameters["container_name"].default,
             KALI_CONTAINER_NAME,
         )
         self.assertEqual(
-            inspect.signature(docker_ops.stop_kali_container)
-            .parameters["container_name"]
-            .default,
+            inspect.signature(docker_ops.stop_kali_container).parameters["container_name"].default,
             KALI_CONTAINER_NAME,
         )
         self.assertEqual(
-            inspect.signature(experiment_agent.run_experiment_agent)
-            .parameters["kali_container_name"]
-            .default,
+            inspect.signature(experiment_agent.run_experiment_agent).parameters["kali_container_name"].default,
             KALI_CONTAINER_NAME,
         )
 

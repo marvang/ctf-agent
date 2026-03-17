@@ -1,16 +1,14 @@
 """Docker connection utilities"""
+
 import docker
 import docker.errors
-from typing import Optional, Tuple
 from docker import DockerClient
 from docker.models.containers import Container
 
 from src.config.constants import KALI_CONTAINER_NAME
 
 
-def connect_to_docker(
-    kali_container_name: str = KALI_CONTAINER_NAME
-) -> Tuple[Optional[DockerClient], Optional[Container]]:
+def connect_to_docker(kali_container_name: str = KALI_CONTAINER_NAME) -> tuple[DockerClient | None, Container | None]:
     """
     Connect to Docker and retrieve container
 

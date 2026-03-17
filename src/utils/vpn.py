@@ -1,4 +1,5 @@
 """VPN connection management utilities"""
+
 import os
 import re
 import shlex
@@ -7,7 +8,7 @@ import shlex
 def _filter_vpn_output(text: str) -> str:
     """Remove noisy/unhelpful lines from VPN connect script output."""
     skip_patterns = [
-        re.compile(r"^\d{4}-\d{2}-\d{2}\s"),          # timestamped OpenVPN log lines
+        re.compile(r"^\d{4}-\d{2}-\d{2}\s"),  # timestamped OpenVPN log lines
         re.compile(r"^📊 Network interfaces:"),
         re.compile(r"^🔍 Testing connectivity"),
         re.compile(r"^🎉 VPN connection established"),
@@ -60,16 +61,10 @@ def get_vpn_setup_hint(environment: str) -> str:
 def discover_vpn_scripts(container, environment: str) -> list[str]:
     """List .sh files in the VPN workdir inside the container."""
     workdir = ENVIRONMENTS[environment]["workdir"]
-    exit_code, output = container.exec_run(
-        ["bash", "-c", f"ls {shlex.quote(workdir)}/*.sh 2>/dev/null"]
-    )
+    exit_code, output = container.exec_run(["bash", "-c", f"ls {shlex.quote(workdir)}/*.sh 2>/dev/null"])
     if exit_code != 0:
         return []
-    return [
-        os.path.basename(f)
-        for f in output.decode("utf-8", errors="replace").strip().splitlines()
-        if f.strip()
-    ]
+    return [os.path.basename(f) for f in output.decode("utf-8", errors="replace").strip().splitlines() if f.strip()]
 
 
 def check_vpn_connection(container) -> bool:
@@ -86,9 +81,7 @@ def connect_vpn(container, environment: str = "private", connect_script: str | N
 
     print(f"\n🔗 Connecting to {env['label']} VPN...")
     try:
-        exit_code, output = container.exec_run(
-            ["bash", "-c", _build_command(env["workdir"], connect_cmd)]
-        )
+        exit_code, output = container.exec_run(["bash", "-c", _build_command(env["workdir"], connect_cmd)])
         command_output = output.decode("utf-8", errors="replace").strip()
         if command_output:
             filtered = _filter_vpn_output(command_output)
@@ -114,11 +107,9 @@ def disconnect_vpn(container, environment: str = "private", connect_script: str 
     else:
         disconnect_cmd = env["disconnect_cmd"]
 
-    print(f"🔌 Disconnecting VPN...")
+    print("🔌 Disconnecting VPN...")
     try:
-        exit_code, output = container.exec_run(
-            ["bash", "-c", _build_command(env["workdir"], disconnect_cmd)]
-        )
+        exit_code, _output = container.exec_run(["bash", "-c", _build_command(env["workdir"], disconnect_cmd)])
         if exit_code == 0:
             print("✅ VPN disconnected")
         else:

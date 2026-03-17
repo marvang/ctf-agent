@@ -3,12 +3,14 @@ Discord Integration - Error Messages
 Handles error and alert notifications.
 """
 
+from typing import Any
+
 import discord
-from typing import Dict, Any
-from .core import _safe_send, _create_embed
+
+from .core import _create_embed, _safe_send
 
 
-def send_llm_error_message(channel_id, error_msg: str, context: Dict[str, Any]) -> bool:
+def send_llm_error_message(channel_id, error_msg: str, context: dict[str, Any]) -> bool:
     """
     Send LLM API error alert notification.
 
@@ -64,7 +66,7 @@ def send_llm_error_message(channel_id, error_msg: str, context: Dict[str, Any]) 
         title="🤖❌ LLM API Error",
         description="LLM API call failed - experiment may be stopping",
         color=discord.Color.red(),
-        fields=fields
+        fields=fields,
     )
 
     return _safe_send(channel_id, embed=embed)
@@ -72,7 +74,7 @@ def send_llm_error_message(channel_id, error_msg: str, context: Dict[str, Any]) 
 
 def send_empty_command_stop_message(
     channel_id,
-    context: Dict[str, Any],
+    context: dict[str, Any],
     retry_limit: int = 5,
 ) -> bool:
     """
@@ -119,13 +121,13 @@ def send_empty_command_stop_message(
         title="❌ Agent Stopped: Empty Commands",
         description=f"Agent provided empty command {retry_limit} times consecutively and was stopped",
         color=discord.Color.red(),
-        fields=fields
+        fields=fields,
     )
 
     return _safe_send(channel_id, embed=embed)
 
 
-def send_docker_connection_error_message(channel_id, container_name: str, context: Dict[str, Any]) -> bool:
+def send_docker_connection_error_message(channel_id, container_name: str, context: dict[str, Any]) -> bool:
     """
     Send Docker connection error notification.
 
@@ -153,9 +155,7 @@ def send_docker_connection_error_message(channel_id, container_name: str, contex
         return False
 
     # Build fields from context
-    fields = [
-        {"name": "Container", "value": container_name, "inline": True}
-    ]
+    fields = [{"name": "Container", "value": container_name, "inline": True}]
 
     if "challenge" in context:
         fields.insert(0, {"name": "Challenge", "value": context["challenge"], "inline": True})
@@ -167,7 +167,7 @@ def send_docker_connection_error_message(channel_id, container_name: str, contex
         title="🐳❌ Docker Connection Failed",
         description="Failed to connect to Docker container - experiment cannot continue",
         color=discord.Color.red(),
-        fields=fields
+        fields=fields,
     )
 
     return _safe_send(channel_id, embed=embed)

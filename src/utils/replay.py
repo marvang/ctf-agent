@@ -5,10 +5,10 @@ Replay helpers for reconstructing OpenRouter call payloads from session logs.
 from __future__ import annotations
 
 import copy
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from src.chap_utils.protocol_generator import rebuild_protocol_request_messages
-
 
 MAIN_AGENT_CALL_TAGS = {
     "assistant_auto_relay_discarded",
@@ -54,9 +54,9 @@ def list_replayable_model_calls(session: Mapping[str, Any]) -> list[dict[str, An
         stream = event.get("stream")
         tag = event.get("tag")
 
-        if stream == "main_agent" and tag in MAIN_AGENT_CALL_TAGS:
-            pass
-        elif stream == "protocol_generation" and tag == "protocol_request_user_prompt":
+        if (stream == "main_agent" and tag in MAIN_AGENT_CALL_TAGS) or (
+            stream == "protocol_generation" and tag == "protocol_request_user_prompt"
+        ):
             pass
         else:
             continue

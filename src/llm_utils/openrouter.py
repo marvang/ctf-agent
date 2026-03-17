@@ -1,13 +1,14 @@
-import os
 import json
+import os
 import re
-import socket
 import time
 from http.client import IncompleteRead
-from typing import Tuple, Dict, Any
+from typing import Any
 from urllib import request
 from urllib.error import HTTPError, URLError
+
 from dotenv import load_dotenv
+
 from src.llm_utils.response_schema import get_ctf_response_schema
 
 
@@ -15,7 +16,7 @@ def _call_openrouter_api(messages: list, model_name: str, response_schema: dict)
     """Send a request to the OpenRouter API with retry logic.
 
     Handles API key loading, request construction, and retries (3 attempts)
-    for HTTPError, URLError, IncompleteRead, and socket.timeout.
+    for HTTPError, URLError, IncompleteRead, and TimeoutError.
 
     Returns the parsed JSON response dict from the API.
     """
@@ -70,11 +71,13 @@ def _call_openrouter_api(messages: list, model_name: str, response_schema: dict)
             last_error_details = error_details
 
             if attempt < max_attempts:
-                print(f"⚠️  OpenRouter HTTP error (attempt {attempt}/{max_attempts}): {e.code} {e.reason}. Retrying in 2s...")
+                print(
+                    f"⚠️  OpenRouter HTTP error (attempt {attempt}/{max_attempts}): {e.code} {e.reason}. Retrying in 2s..."
+                )
                 time.sleep(2)
                 req = request.Request(url, data=encoded_payload, headers=headers, method="POST")
             else:
-                raise RuntimeError(f"OpenRouter API error: {json.dumps(last_error_details)}")
+                raise RuntimeError(f"OpenRouter API error: {json.dumps(last_error_details)}") from None
         except URLError as e:
             last_error_details = {
                 "error_type": "URLError",
@@ -87,11 +90,11 @@ def _call_openrouter_api(messages: list, model_name: str, response_schema: dict)
                 time.sleep(2)
                 req = request.Request(url, data=encoded_payload, headers=headers, method="POST")
             else:
-                raise RuntimeError(f"OpenRouter API error: {json.dumps(last_error_details)}")
+                raise RuntimeError(f"OpenRouter API error: {json.dumps(last_error_details)}") from None
         except IncompleteRead as e:
             last_error_details = {
                 "error_type": "IncompleteRead",
-                "bytes_read": str(e.partial) if hasattr(e, 'partial') else str(e),
+                "bytes_read": str(e.partial) if hasattr(e, "partial") else str(e),
                 "attempt": attempt,
             }
 
@@ -100,8 +103,8 @@ def _call_openrouter_api(messages: list, model_name: str, response_schema: dict)
                 time.sleep(2)
                 req = request.Request(url, data=encoded_payload, headers=headers, method="POST")
             else:
-                raise RuntimeError(f"OpenRouter API error: {json.dumps(last_error_details)}")
-        except socket.timeout as e:
+                raise RuntimeError(f"OpenRouter API error: {json.dumps(last_error_details)}") from None
+        except TimeoutError as e:
             last_error_details = {
                 "error_type": "Timeout",
                 "message": str(e),
@@ -113,7 +116,7 @@ def _call_openrouter_api(messages: list, model_name: str, response_schema: dict)
                 time.sleep(2)
                 req = request.Request(url, data=encoded_payload, headers=headers, method="POST")
             else:
-                raise RuntimeError(f"OpenRouter API error: {json.dumps(last_error_details)}")
+                raise RuntimeError(f"OpenRouter API error: {json.dumps(last_error_details)}") from None
 
     # Should not be reached, but satisfy type checkers
     raise RuntimeError("OpenRouter API error: exhausted all retry attempts")
@@ -135,7 +138,7 @@ def parse_llm_error(exception: Exception) -> dict:
     return {"raw_error": error_str}
 
 
-def _extract_openrouter_message_fields(data: dict) -> Tuple[str, str]:
+def _extract_openrouter_message_fields(data: dict) -> tuple[str, str]:
     """Return normalized message content and separate reasoning text."""
     try:
         message = data["choices"][0]["message"]
@@ -152,7 +155,7 @@ def _extract_openrouter_message_fields(data: dict) -> Tuple[str, str]:
     return json.dumps(content), reasoning
 
 
-def call_openrouter_with_history(messages: list, model_name: str) -> Tuple[str, str, Dict[str, Any], str]:
+def call_openrouter_with_history(messages: list, model_name: str) -> tuple[str, str, dict[str, Any], str]:
     """
     Call OpenRouter API with full message history for context-aware responses.
 
@@ -185,7 +188,7 @@ def call_openrouter_with_history(messages: list, model_name: str) -> Tuple[str, 
         pass
 
     # Strategy 2: Try to extract JSON from markdown code blocks
-    json_pattern = r'```(?:json)?\s*(\{.*?\})\s*```'
+    json_pattern = r"```(?:json)?\s*(\{.*?\})\s*```"
     matches = re.findall(json_pattern, content, re.DOTALL)
     for match in matches:
         try:
@@ -225,7 +228,7 @@ def call_openrouter_with_history(messages: list, model_name: str) -> Tuple[str, 
 
 
 # For Protocol Generation - structured output with reasoning + protocol
-def call_openrouter_protocol(messages: list, model_name: str) -> Tuple[str, str, Dict[str, Any]]:
+def call_openrouter_protocol(messages: list, model_name: str) -> tuple[str, str, dict[str, Any]]:
     """
     Call OpenRouter API for protocol generation with structured output.
 

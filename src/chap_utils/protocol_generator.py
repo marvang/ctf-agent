@@ -5,8 +5,10 @@ Generates compact relay protocols from conversation history.
 
 import copy
 import json
-from typing import Dict, Any, List, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
+from typing import Any
+
 from src.llm_utils.openrouter import call_openrouter_protocol
 from src.llm_utils.prompts import format_relay_protocols
 from src.utils.state_manager import append_session_event, update_session_tokens
@@ -173,12 +175,15 @@ def rebuild_protocol_request_messages(
     history_agent_number = parsed.get("history_agent_number")
     history_end_event_index = parsed.get("history_end_event_index")
     prior_protocol_count = parsed.get("prior_protocol_count")
-    if not all(isinstance(value, int) for value in (
-        system_event_index,
-        history_agent_number,
-        history_end_event_index,
-        prior_protocol_count,
-    )):
+    if not all(
+        isinstance(value, int)
+        for value in (
+            system_event_index,
+            history_agent_number,
+            history_end_event_index,
+            prior_protocol_count,
+        )
+    ):
         raise ValueError("Protocol request event is missing required reconstruction indices")
 
     events = session.get("events", [])
@@ -214,11 +219,11 @@ def rebuild_protocol_request_messages(
 
 
 def generate_relay_protocol(
-    messages: List[Dict[str, str]],
-    session: Dict[str, Any],
+    messages: list[dict[str, str]],
+    session: dict[str, Any],
     model_name: str,
     current_iteration: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Prompts LLM to generate compact relay protocol from conversation history.
 
@@ -262,10 +267,7 @@ def generate_relay_protocol(
     )
 
     try:
-        reasoning, protocol_content, usage = call_openrouter_protocol(
-            messages=protocol_messages,
-            model_name=model_name
-        )
+        reasoning, protocol_content, usage = call_openrouter_protocol(messages=protocol_messages, model_name=model_name)
 
         if usage:
             update_session_tokens(session, usage)
