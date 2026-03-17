@@ -1,16 +1,19 @@
 """Docker command execution utilities"""
 
+from __future__ import annotations
+
 import shlex
 import threading
 from typing import Any
 
 import docker
 import docker.errors
+from docker.models.containers import Container
 
 TIMEOUT_EXIT_CODE = 124
 
 
-def execute_command(container, shell_command: str, timeout_seconds: int) -> tuple[bool, str, int]:
+def execute_command(container: Container, shell_command: str, timeout_seconds: int) -> tuple[bool, str, int]:
     """
     Execute shell command in Docker container
 
@@ -24,7 +27,7 @@ def execute_command(container, shell_command: str, timeout_seconds: int) -> tupl
     """
     result: dict[str, Any] = {"exit_code": None, "output": None, "error": None}
 
-    def run_command():
+    def run_command() -> None:
         try:
             exit_code, output = container.exec_run(
                 ["bash", "-lc", shell_command], tty=True, stdin=True, environment={"TERM": "xterm-256color"}
@@ -66,7 +69,7 @@ def execute_command(container, shell_command: str, timeout_seconds: int) -> tupl
     return success, result["output"] or "", exit_code
 
 
-def cleanup_tmux_session(container) -> None:
+def cleanup_tmux_session(container: Container) -> None:
     """Kill all tmux sessions in the container."""
     try:
         exit_code, _output = container.exec_run(["bash", "-lc", "tmux list-sessions 2>/dev/null"], tty=True)
@@ -78,7 +81,7 @@ def cleanup_tmux_session(container) -> None:
         pass
 
 
-def get_container_ips(container, use_vpn: bool) -> dict:
+def get_container_ips(container: Container, use_vpn: bool) -> dict[str, str]:
     """Return dict with eth0 (and tun0 if VPN) IPs from the container."""
     ips = {}
 

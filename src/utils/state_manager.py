@@ -150,13 +150,13 @@ def get_current_agent_tokens(session: dict[str, Any]) -> int:
     Returns:
         Token count for current agent since last relay (or session start)
     """
-    current_total = session["metrics"]["total_tokens"]
+    current_total: int = session["metrics"]["total_tokens"]
 
     if not session.get("relay_protocols"):
         return current_total
 
     last_protocol = session["relay_protocols"][-1]
-    tokens_at_last_relay = last_protocol["metrics"]["snapshot_total_tokens"]
+    tokens_at_last_relay: int = last_protocol["metrics"]["snapshot_total_tokens"]
     return current_total - tokens_at_last_relay
 
 

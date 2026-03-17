@@ -10,7 +10,7 @@ import discord
 from .core import _create_embed, _safe_send
 
 
-def send_auto_relay_message(channel_id, relay_data: dict[str, Any]) -> bool:
+def send_auto_relay_message(channel_id: str | None, relay_data: dict[str, Any]) -> bool:
     """
     Send auto-relay notification (triggered by automated relay logic).
 
@@ -68,7 +68,7 @@ def send_auto_relay_message(channel_id, relay_data: dict[str, Any]) -> bool:
     return _safe_send(channel_id, embed=embed)
 
 
-def send_manual_relay_message(channel_id, relay_data: dict[str, Any]) -> bool:
+def send_manual_relay_message(channel_id: str | None, relay_data: dict[str, Any]) -> bool:
     """
     Send manual relay notification (triggered by agent command).
 

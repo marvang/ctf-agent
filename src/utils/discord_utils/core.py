@@ -3,9 +3,12 @@ Discord Integration - Core Module
 Handles bot client initialization, channel management, and message sending helpers.
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
 import re
+from typing import Any
 
 import discord
 from dotenv import load_dotenv
@@ -20,10 +23,10 @@ DISCORD_GUILD_ID = os.getenv("DISCORD_GUILD_ID", "")
 DISCORD_PARENT_CATEGORY_ID = os.getenv("DISCORD_PARENT_CATEGORY_ID", "")
 
 # Event loop reference
-_event_loop = None
+_event_loop: asyncio.AbstractEventLoop | None = None
 
 
-def _get_or_create_event_loop():
+def _get_or_create_event_loop() -> asyncio.AbstractEventLoop:
     """Get or create event loop for async operations."""
     global _event_loop
     try:
@@ -165,7 +168,7 @@ async def _async_send_message(
             print(f"❌ Channel not found: {channel_id}")
             return False
 
-        await channel.send(content=content, embed=embed)  # type: ignore[arg-type]
+        await channel.send(content=content, embed=embed)  # type: ignore[arg-type,union-attr]
         return True
 
     except Exception as e:
@@ -176,7 +179,7 @@ async def _async_send_message(
         await asyncio.sleep(0.25)
 
 
-def _run_async(coro):
+def _run_async(coro: Any) -> Any:
     """
     Helper to run async coroutine in sync context.
 
@@ -217,7 +220,8 @@ def create_experiment_channel(experiment_id: str) -> str | None:
         return None
 
     try:
-        return _run_async(_async_create_channel(experiment_id))
+        result: str | None = _run_async(_async_create_channel(experiment_id))
+        return result
     except Exception as e:
         print(f"❌ Error creating Discord channel: {e}")
         return None
@@ -228,7 +232,8 @@ def create_challenge_channel(category_id: str, challenge_name: str) -> str | Non
         return None
 
     try:
-        return _run_async(_async_create_challenge_channel(category_id, challenge_name))
+        result: str | None = _run_async(_async_create_challenge_channel(category_id, challenge_name))
+        return result
     except Exception as e:
         print(f"❌ Error creating challenge channel: {e}")
         return None
@@ -251,7 +256,7 @@ def _safe_send(
         return False
 
 
-def _create_embed(title: str, description: str, color: discord.Color, fields: list | None = None) -> discord.Embed:
+def _create_embed(title: str, description: str, color: discord.Color, fields: list[dict[str, Any]] | None = None) -> discord.Embed:
     """
     Helper to create formatted Discord embed.
 
