@@ -2,10 +2,14 @@
 
 import fnmatch
 import os
+import shutil
 import subprocess
 import sys
 
 _CLEANUP_ABORT_MESSAGE = "   Aborting to prevent workspace contamination between runs."
+
+# Track whether sudo has been verified for this process lifetime.
+_sudo_verified = False
 
 
 def _is_approved_path(relative_path: str, approved_patterns: list[str], is_dir: bool) -> bool:
@@ -33,6 +37,13 @@ def _is_approved_path(relative_path: str, approved_patterns: list[str], is_dir: 
     return False
 
 
+def _validate_path_containment(item_path: str, workspace_dir: str) -> bool:
+    """Ensure item_path is actually inside workspace_dir (prevents symlink escapes)."""
+    real_workspace = os.path.realpath(workspace_dir)
+    real_item = os.path.realpath(item_path)
+    return real_item.startswith(real_workspace + os.sep) or real_item == real_workspace
+
+
 def _has_interactive_tty() -> bool:
     """Return whether cleanup can safely prompt for sudo credentials."""
     return sys.stdin is not None and sys.stdin.isatty()
@@ -43,7 +54,7 @@ def _run_sudo_command(command: list[str]) -> subprocess.CompletedProcess[str] | 
     try:
         return subprocess.run(["sudo", "-n", *command], capture_output=True, text=True)
     except OSError as exc:
-        print(f"❌ Failed to run sudo command {' '.join(command)}: {exc}")
+        print(f"❌ Failed to run sudo command: {exc}")
         return None
 
 
@@ -56,6 +67,10 @@ def _format_sudo_error(result: subprocess.CompletedProcess[str] | None) -> str:
 
 def _ensure_sudo_ready() -> bool:
     """Ensure sudo credentials are available before mutating the shared workspace."""
+    global _sudo_verified
+    if _sudo_verified:
+        return True
+
     try:
         sudo_check = subprocess.run(["sudo", "-n", "true"], capture_output=True, text=True)
     except OSError as exc:
@@ -63,6 +78,7 @@ def _ensure_sudo_ready() -> bool:
         return False
 
     if sudo_check.returncode == 0:
+        _sudo_verified = True
         return True
 
     if not _has_interactive_tty():
@@ -81,6 +97,7 @@ def _ensure_sudo_ready() -> bool:
         return False
 
     if sudo_verify.returncode == 0:
+        _sudo_verified = True
         return True
 
     print("❌ Sudo verification failed. Aborting workspace cleanup.")
@@ -88,35 +105,68 @@ def _ensure_sudo_ready() -> bool:
     return False
 
 
-def _delete_workspace_item(item_path: str) -> bool:
-    """Delete a workspace path using sudo to handle Docker-owned files."""
+def _delete_workspace_item(item_path: str, workspace_dir: str) -> bool:
+    """Delete a workspace path. Tries unprivileged first, escalates to sudo on PermissionError."""
     item_name = os.path.basename(item_path)
     item_type = "directory" if os.path.isdir(item_path) else "file"
+
+    if not _validate_path_containment(item_path, workspace_dir):
+        print(f"❌ FATAL: Refusing to delete {item_name}: path escapes workspace directory")
+        return False
+
+    # Try unprivileged first
+    try:
+        if os.path.isdir(item_path):
+            shutil.rmtree(item_path)
+        else:
+            os.remove(item_path)
+        print(f"🗑️  Deleted {item_type}: {item_name}")
+        return True
+    except PermissionError:
+        pass  # Fall through to sudo path
+
+    # Escalate to sudo
+    if not _ensure_sudo_ready():
+        print(f"❌ FATAL: Could not delete {item_name}: permission denied and sudo not available")
+        return False
+
     result = _run_sudo_command(["rm", "-rf", "--", item_path])
     if result is None or result.returncode != 0:
         print(f"❌ FATAL: Could not delete {item_name}: {_format_sudo_error(result)}")
         return False
 
-    print(f"🗑️  Deleted {item_type}: {item_name}")
+    print(f"🗑️  Deleted {item_type} (sudo): {item_name}")
     return True
 
 
-def _empty_workspace_file(file_path: str) -> bool:
-    """Truncate a workspace file using sudo and verify it is empty afterwards."""
+def _empty_workspace_file(file_path: str, workspace_dir: str) -> bool:
+    """Empty a workspace file. Tries unprivileged first, escalates to sudo on PermissionError."""
     filename = os.path.basename(file_path)
-    result = _run_sudo_command(["truncate", "-s", "0", file_path])
+
+    if not _validate_path_containment(file_path, workspace_dir):
+        print(f"❌ FATAL: Refusing to empty {filename}: path escapes workspace directory")
+        return False
+
+    # Try unprivileged first
+    try:
+        with open(file_path, "w") as f:
+            f.truncate(0)
+        print(f"📝 Emptied: {filename}")
+        return True
+    except PermissionError:
+        pass  # Fall through to sudo path
+
+    # Escalate to sudo — use portable shell redirect instead of `truncate` command
+    if not _ensure_sudo_ready():
+        print(f"❌ FATAL: Could not empty {filename}: permission denied and sudo not available")
+        return False
+
+    result = _run_sudo_command(["sh", "-c", f": > {file_path}"])
     if result is None or result.returncode != 0:
         print(f"❌ FATAL: Could not empty {filename}: {_format_sudo_error(result)}")
         return False
 
-    if not os.path.exists(file_path):
-        print(f"❌ FATAL: Could not verify {filename} was emptied: file missing after truncate")
-        return False
-    if os.path.getsize(file_path) != 0:
-        print(f"❌ FATAL: Could not verify {filename} was emptied: file still has content")
-        return False
-
-    print(f"📝 Emptied: {filename}")
+    print(f"📝 Emptied (sudo): {filename}")
     return True
 
 
@@ -178,18 +228,14 @@ def cleanup_workspace(
             wipe_choice = input("\n🧹 Proceed with cleanup? (y/n) [y]: ").strip().lower()
 
         if wipe_choice == "" or wipe_choice == "y":
-            if not _ensure_sudo_ready():
-                print(_CLEANUP_ABORT_MESSAGE)
-                return False
-
             for item_path in items_to_delete:
-                if not _delete_workspace_item(item_path):
+                if not _delete_workspace_item(item_path, workspace_dir):
                     print(_CLEANUP_ABORT_MESSAGE)
                     return False
 
             for filename in files_to_empty_list:
                 file_path = os.path.join(workspace_dir, filename)
-                if not _empty_workspace_file(file_path):
+                if not _empty_workspace_file(file_path, workspace_dir):
                     print(_CLEANUP_ABORT_MESSAGE)
                     return False
             return True
