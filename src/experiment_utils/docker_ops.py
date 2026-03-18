@@ -88,13 +88,18 @@ def _command_args_from_compose(command: Any) -> list[str]:
     return shlex.split(str(command))
 
 
-def _entrypoint_args_from_compose(entrypoint: Any) -> list[str]:
-    """Return a docker-run entrypoint override."""
+def _entrypoint_args_from_compose(entrypoint: Any) -> tuple[list[str], list[str]]:
+    """Return ``(entrypoint_flags, extra_command_prefix)`` for docker-run.
+
+    ``--entrypoint`` only accepts the executable; remaining list elements
+    must be prepended to the container command.
+    """
     if entrypoint is None:
-        return []
+        return [], []
     if isinstance(entrypoint, list):
-        return ["--entrypoint", " ".join(str(part) for part in entrypoint)]
-    return ["--entrypoint", str(entrypoint)]
+        parts = [str(part) for part in entrypoint]
+        return ["--entrypoint", parts[0]], parts[1:]
+    return ["--entrypoint", str(entrypoint)], []
 
 
 def _run_container_from_service(
@@ -164,10 +169,12 @@ def _run_container_from_service(
         for port in service_config.get("ports", []):
             cmd += ["-p", str(port)]
 
-    cmd += _entrypoint_args_from_compose(service_config.get("entrypoint"))
+    entrypoint_flags, entrypoint_cmd_prefix = _entrypoint_args_from_compose(service_config.get("entrypoint"))
+    cmd += entrypoint_flags
 
     image = service_config.get("image") or service_name
     cmd.append(str(image))
+    cmd.extend(entrypoint_cmd_prefix)
     cmd.extend(_command_args_from_compose(service_config.get("command")))
 
     subprocess.run(cmd, check=True, capture_output=True, text=True)
@@ -180,7 +187,7 @@ def _inspect_container_ip(container_name: str, network_name: str) -> str:
             "docker",
             "inspect",
             "-f",
-            f"{{{{.NetworkSettings.Networks.{network_name}.IPAddress}}}}",
+            f'{{{{(index .NetworkSettings.Networks "{network_name}").IPAddress}}}}',
             container_name,
         ],
         check=True,
