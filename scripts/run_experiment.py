@@ -103,6 +103,8 @@ DISCORD_NOTIFICATIONS_ENABLED = True  # Set to False, to enable you need to set 
 LOCAL_ARCH: LocalArch = "aarch64"
 SERVICE_STARTUP_DELAY = 30
 
+USE_PTY_MODE = False  # Set to True to use experimental PTY-based execution (interactive prompt support)
+
 RESULTS_DIR = "./results"
 EXPERIMENT_SET_NAME = "default"
 
@@ -142,13 +144,19 @@ def parse_args():
     )
     parser.set_defaults(auto_trigger=None)  # None means use file default
 
+    # PTY execution mode toggle
+    pty_group = parser.add_mutually_exclusive_group()
+    pty_group.add_argument("--pty", dest="use_pty", action="store_true", help="Use PTY execution mode (experimental)")
+    pty_group.add_argument("--no-pty", dest="use_pty", action="store_false", help="Use standard execution mode")
+    parser.set_defaults(use_pty=None)  # None means use file default
+
     return parser.parse_args()
 
 
 def apply_cli_overrides(args):
     """Apply CLI arguments to global config variables."""
     global CHAP_ENABLED, EXPERIMENT_SET_NAME, CHAP_TOKEN_LIMIT_BASE
-    global MODEL_NAME, CHAP_TOKEN_LIMIT_INCREMENT, CHAP_AUTO_TRIGGER
+    global MODEL_NAME, CHAP_TOKEN_LIMIT_INCREMENT, CHAP_AUTO_TRIGGER, USE_PTY_MODE
 
     if args.chap_enabled is not None:
         CHAP_ENABLED = args.chap_enabled
@@ -162,6 +170,8 @@ def apply_cli_overrides(args):
         CHAP_TOKEN_LIMIT_INCREMENT = args.token_increment
     if args.auto_trigger is not None:
         CHAP_AUTO_TRIGGER = args.auto_trigger
+    if args.use_pty is not None:
+        USE_PTY_MODE = args.use_pty
 
 
 def get_custom_instructions_for_challenge(challenge_name: str) -> str:
@@ -383,6 +393,7 @@ def main():
                     channel_id=channel_id,
                     local_arch=LOCAL_ARCH,
                     session_path=os.path.join(challenge_dir, "session.json"),
+                    use_pty=USE_PTY_MODE,
                 )
 
                 result["challenge_name"] = challenge

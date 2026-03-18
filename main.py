@@ -46,7 +46,7 @@ from src.experiment_utils.docker_ops import (
     stop_container,
     stop_kali_container,
 )
-from src.llm_utils.openrouter import call_openrouter_with_history, parse_llm_error
+from src.llm_utils.openrouter import call_openrouter_with_history, call_openrouter_with_history_pty, parse_llm_error
 from src.llm_utils.prompt_builder import build_initial_messages
 from src.utils.docker_exec import cleanup_tmux_session, execute_command, get_container_ips
 from src.utils.docker_utils import connect_to_docker
@@ -97,6 +97,7 @@ MAX_COST_AUTO_MODE = 2
 MAX_ITERATIONS_AUTO_MODE = 200
 LOCAL_CTF_STARTUP_DELAY_SECONDS = 30
 LOCAL_CTF_NETWORK_NAME = LOCAL_CHALLENGES_NETWORK_NAME
+USE_PTY_MODE = False
 
 
 def ensure_kali_container_running(kali_container_name: str = KALI_CONTAINER_NAME):
@@ -331,6 +332,12 @@ def main():
     chap_config = prompt_chap_usage()
     use_chap = bool(chap_config.get("enabled", False))
 
+    # Prompt for PTY execution mode (experimental)
+    pty_input = input("\nUse PTY execution mode? (experimental, enables interactive prompts) [y/N]: ").strip().lower()
+    USE_PTY_MODE = pty_input in ("y", "yes")
+    if USE_PTY_MODE:
+        print("✅ PTY mode enabled — interactive commands supported")
+
     try:
         approved_workspace_patterns = load_workspace_approved_patterns()
     except RuntimeError as exc:
@@ -429,6 +436,7 @@ def main():
         custom_instructions=custom_instructions,
         agent_ips=agent_ips,
         local_arch=local_arch,
+        use_pty=USE_PTY_MODE,
     )
 
     # Set challenge_name for VPN modes (local mode already set by prompt_local_challenge_selection)
@@ -503,6 +511,13 @@ def main():
     last_relay_iteration = 0  # Track iteration when last relay occurred
     chap_80_percent_warning_shown = False  # Track if 80% token warning has been shown
 
+    # PTY session manager (opt-in)
+    pty_manager = None
+    if USE_PTY_MODE:
+        from src.utils.pty_session import PtySessionManager
+
+        pty_manager = PtySessionManager(container_name=KALI_CONTAINER_NAME)
+
     # Empty command retry tracking
     empty_command_count = 0
 
@@ -566,11 +581,20 @@ def main():
                     stopping_reason = "iteration_limit"
                     break
 
+            stdin_input = ""
             try:
-                reasoning, shell_command, usage, extended_reasoning = call_openrouter_with_history(
-                    messages=messages,
-                    model_name=selected_model,
-                )
+                if USE_PTY_MODE:
+                    reasoning, shell_command, stdin_input, usage, extended_reasoning = (
+                        call_openrouter_with_history_pty(
+                            messages=messages,
+                            model_name=selected_model,
+                        )
+                    )
+                else:
+                    reasoning, shell_command, usage, extended_reasoning = call_openrouter_with_history(
+                        messages=messages,
+                        model_name=selected_model,
+                    )
             except Exception as e:
                 print(f"❌ LLM API error: {e}")
                 llm_error_details = parse_llm_error(e)
@@ -587,6 +611,8 @@ def main():
                 print(f"\n💭 Internal Reasoning:\n<thinking>\n{display_extended}\n</thinking>")
             print(f"\n🧠 {reasoning}")
             print(f"💻 {shell_command}")
+            if USE_PTY_MODE and stdin_input:
+                print(f"⌨️  stdin: {stdin_input}")
 
             # Track token usage in session
             prompt_tokens = 0
@@ -656,6 +682,7 @@ def main():
                         agent_ips=agent_ips,
                         local_arch=local_arch,
                         session_path=session_path,
+                        use_pty=USE_PTY_MODE,
                     )
                     relay_count += 1
 
@@ -691,7 +718,7 @@ def main():
             )
             messages.append(assistant_message)
 
-            if not shell_cmd_clean:
+            if not shell_cmd_clean and not (USE_PTY_MODE and stdin_input.strip()):
                 empty_command_count += 1
 
                 if empty_command_count < MAX_EMPTY_COMMAND_RETRIES:
@@ -828,6 +855,7 @@ def main():
                     agent_ips=agent_ips,
                     local_arch=local_arch,
                     session_path=session_path,
+                    use_pty=USE_PTY_MODE,
                 )
                 relay_count += 1
 
@@ -836,17 +864,37 @@ def main():
                 chap_80_percent_warning_shown = False
                 continue
 
-            print("\n🤖 Executing...")
-            success, output, exit_code = execute_command(container, shell_command, COMMAND_TIMEOUT_SECONDS)
+            if USE_PTY_MODE and pty_manager is not None:
+                from src.utils.pty_session import dispatch_pty_command, resolve_pty_fields
 
-            llm_output = truncate_output(output, MAX_OUTPUT_LENGTH)
+                shell_command, stdin_input = resolve_pty_fields(shell_command, stdin_input)
 
-            print("\n📤 Output:")
-            print(llm_output)
-            if not success:
-                print(f"⚠️  Exit code: {exit_code}")
+                print("\n🤖 Executing (PTY)...")
+                exec_start = time.time()
+                output, process_exited, exit_code = dispatch_pty_command(
+                    pty_manager, shell_command, stdin_input
+                )
+                wall_time = time.time() - exec_start
+                llm_output = truncate_output(output, MAX_OUTPUT_LENGTH)
 
-            result_content = f"Command executed with exit code {exit_code}. Output:\n{llm_output}"
+                print("\n📤 Output:")
+                print(llm_output)
+
+                status_line = f"[Process exited (code {exit_code})]" if process_exited else "[Process running]"
+                result_content = f"{status_line} Wall time: {wall_time:.1f}s\nOutput:\n{llm_output}"
+                success = (exit_code == 0) if exit_code is not None else (not process_exited)
+            else:
+                print("\n🤖 Executing...")
+                success, output, exit_code = execute_command(container, shell_command, COMMAND_TIMEOUT_SECONDS)
+
+                llm_output = truncate_output(output, MAX_OUTPUT_LENGTH)
+
+                print("\n📤 Output:")
+                print(llm_output)
+                if not success:
+                    print(f"⚠️  Exit code: {exit_code}")
+
+                result_content = f"Command executed with exit code {exit_code}. Output:\n{llm_output}"
 
             # Show CHAP 80% warning ONCE when threshold is crossed
             if use_chap and token_limit_for_agent > 0:
@@ -916,6 +964,9 @@ def main():
                 target_ip=target_ip,
                 timestamp=run_timestamp,
             )
+
+        if pty_manager is not None:
+            pty_manager.cleanup()
 
         cleanup_on_exit()
 

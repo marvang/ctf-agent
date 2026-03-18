@@ -28,6 +28,7 @@ def trigger_relay_handoff(
     agent_ips: dict | None = None,
     local_arch: LocalArch | None = None,
     session_path: str | None = None,
+    use_pty: bool = False,
 ) -> list[dict[str, str]]:
     """
     Executes relay handoff:
@@ -86,6 +87,7 @@ def trigger_relay_handoff(
         custom_instructions=custom_instructions,
         agent_ips=agent_ips,
         local_arch=local_arch,
+        use_pty=use_pty,
     )
 
     append_session_event(

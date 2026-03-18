@@ -11,6 +11,7 @@ def build_initial_messages(
     custom_instructions: str = "",
     agent_ips: dict | None = None,
     local_arch: LocalArch | None = None,
+    use_pty: bool = False,
 ) -> list[dict[str, str]]:
     """
     Build initial message list for LLM conversation.
@@ -21,6 +22,7 @@ def build_initial_messages(
         use_chap: Whether CHAP protocol should be used
         custom_instructions: Optional custom user instructions
         agent_ips: Dict with agent IP addresses (eth0, tun0 if VPN)
+        use_pty: Whether PTY mode is enabled
 
     Returns:
         List of message dictionaries with 'role' and 'content' keys
@@ -29,6 +31,7 @@ def build_initial_messages(
         environment_mode=environment_mode,
         local_arch=local_arch,
         use_chap=use_chap,
+        use_pty=use_pty,
     )
     initial_user_prompt = prompts.build_initial_user_prompt(
         environment_mode=environment_mode,
@@ -51,6 +54,7 @@ def build_relay_messages(
     custom_instructions: str = "",
     agent_ips: dict | None = None,
     local_arch: LocalArch | None = None,
+    use_pty: bool = False,
 ) -> list[dict[str, str]]:
     """
     Build fresh message history with accumulated relay protocols injected.
@@ -61,6 +65,7 @@ def build_relay_messages(
         target_info: Target IP address
         custom_instructions: Optional custom user instructions
         agent_ips: Dict with agent IP addresses (eth0, tun0 if VPN)
+        use_pty: Whether PTY mode is enabled
 
     Returns:
         Fresh message list with protocols injected into initial user message
@@ -69,6 +74,7 @@ def build_relay_messages(
         environment_mode=environment_mode,
         local_arch=local_arch,
         use_chap=True,
+        use_pty=use_pty,
     )
     user_content = prompts.build_relay_user_prompt(
         session=session,

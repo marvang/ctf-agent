@@ -143,6 +143,29 @@ To relay:
 """
 
 
+PTY_MODE_INSTRUCTIONS = """
+**PTY Mode (Interactive Session Support):**
+You have access to a real PTY session that supports interactive commands. Your response format is:
+{{"reasoning":"...", "shell_command":"...", "stdin_input":"..."}}
+
+- To run a NEW command: set `shell_command` to the command and leave `stdin_input` as an empty string "".
+- To send INPUT to a running interactive session (e.g., entering a password, answering a prompt): leave `shell_command` as "" and set `stdin_input` to the text you want to send.
+- NEVER set both `shell_command` and `stdin_input` to non-empty values in the same response.
+
+**Interactive command handling:**
+- When a command asks for a password, passphrase, or confirmation (yes/no), you will see the prompt in the output. Respond with stdin_input containing your answer.
+- Example: if output shows "Password:", respond with {{"reasoning":"Entering password", "shell_command":"", "stdin_input":"mypassword"}}
+
+**Long-running commands:**
+- For scans that take a long time, run them in the background: `nmap -sV target -oN /tmp/scan.txt &`
+- Run quick commands in the foreground while background tasks are running.
+- Check background results with `cat /tmp/scan.txt` when ready.
+- You do NOT need to poll or check on commands. The system will wait for output and return meaningful results.
+
+**Tmux is NOT needed in PTY mode** — the PTY session handles interactive tools directly. Avoid tmux unless you specifically need multiple concurrent sessions.
+"""
+
+
 def _resolve_system_prompt_variant(
     environment_mode: EnvironmentType,
     local_arch: LocalArch | None,
@@ -159,6 +182,7 @@ def build_system_prompt(
     environment_mode: EnvironmentType,
     local_arch: LocalArch | None = None,
     use_chap: bool = False,
+    use_pty: bool = False,
 ) -> str:
     """Render the system prompt for the given runtime context."""
     variant = _SYSTEM_PROMPT_VARIANTS[_resolve_system_prompt_variant(environment_mode, local_arch)]
@@ -170,6 +194,8 @@ def build_system_prompt(
     )
     if use_chap:
         prompt += "\n" + CHAP
+    if use_pty:
+        prompt += "\n" + PTY_MODE_INSTRUCTIONS
     return prompt
 
 
