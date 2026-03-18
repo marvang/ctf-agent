@@ -39,28 +39,24 @@ def normalize_session_id(session_id: str) -> str:
     return normalized
 
 
-def get_session_kali_name(session_id: str) -> str:
-    """Return a session-scoped Kali container name."""
-    normalized = normalize_session_id(session_id)
-    return f"{KALI_CONTAINER_NAME}-{normalized[:12]}"
+def get_session_kali_name(normalized_id: str) -> str:
+    """Return a session-scoped Kali container name. Expects a pre-normalized ID."""
+    return f"{KALI_CONTAINER_NAME}-{normalized_id[:12]}"
 
 
-def get_session_network_name(session_id: str) -> str:
-    """Return a session-scoped Docker network name."""
-    normalized = normalize_session_id(session_id)
-    return f"{LOCAL_CHALLENGES_NETWORK_NAME}_{normalized[:12]}"
+def get_session_network_name(normalized_id: str) -> str:
+    """Return a session-scoped Docker network name. Expects a pre-normalized ID."""
+    return f"{LOCAL_CHALLENGES_NETWORK_NAME}_{normalized_id[:12]}"
 
 
-def get_session_challenge_name(challenge_name: str, session_id: str) -> str:
-    """Return a session-scoped challenge container name."""
-    normalized = normalize_session_id(session_id)
-    return f"{challenge_name}-{normalized[:12]}"
+def get_session_challenge_name(challenge_name: str, normalized_id: str) -> str:
+    """Return a session-scoped challenge container name. Expects a pre-normalized ID."""
+    return f"{challenge_name}-{normalized_id[:12]}"
 
 
-def get_session_subnet_from_id(session_id: str) -> str:
-    """Derive a stable non-overlapping /24 subnet for a session."""
-    normalized = normalize_session_id(session_id)
-    digest = hashlib.sha256(normalized.encode("utf-8")).digest()
+def get_session_subnet_from_id(normalized_id: str) -> str:
+    """Derive a stable non-overlapping /24 subnet for a session. Expects a pre-normalized ID."""
+    digest = hashlib.sha256(normalized_id.encode("utf-8")).digest()
     second_octet = _SESSION_SUBNET_SECOND_OCTET_BASE + (digest[0] % _SESSION_SUBNET_SECOND_OCTET_SPAN)
     third_octet = digest[1]
     return f"10.{second_octet}.{third_octet}.0/24"

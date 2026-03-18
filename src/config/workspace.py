@@ -3,8 +3,6 @@
 import shutil
 from pathlib import Path
 
-from src.config.constants import normalize_session_id
-
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 WORKSPACE_DIR = str(_PROJECT_ROOT / "ctf-workspace")
@@ -20,11 +18,11 @@ WORKSPACE_APPROVED_PATTERNS = [
 ]
 
 
-def get_workspace_dir(session_id: str | None = None) -> str:
-    """Return the host workspace directory for a shared or isolated session."""
-    if session_id is None:
+def get_workspace_dir(normalized_id: str | None = None) -> str:
+    """Return the host workspace directory for a shared or isolated session. Expects a pre-normalized ID."""
+    if normalized_id is None:
         return WORKSPACE_DIR
-    return str(SESSION_WORKSPACES_ROOT / normalize_session_id(session_id))
+    return str(SESSION_WORKSPACES_ROOT / normalized_id)
 
 
 def ensure_workspace_dir(workspace_dir: str) -> str:
