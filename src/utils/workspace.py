@@ -116,7 +116,9 @@ def _delete_workspace_item(item_path: str, workspace_dir: str) -> bool:
 
     # Try unprivileged first
     try:
-        if os.path.isdir(item_path):
+        if os.path.islink(item_path):
+            os.unlink(item_path)
+        elif os.path.isdir(item_path):
             shutil.rmtree(item_path)
         else:
             os.remove(item_path)
@@ -124,6 +126,9 @@ def _delete_workspace_item(item_path: str, workspace_dir: str) -> bool:
         return True
     except PermissionError:
         pass  # Fall through to sudo path
+    except OSError as exc:
+        print(f"⚠️  Unprivileged delete failed for {item_name}: {exc}")
+        # Fall through to sudo path
 
     # Escalate to sudo
     if not _ensure_sudo_ready():
@@ -161,7 +166,7 @@ def _empty_workspace_file(file_path: str, workspace_dir: str) -> bool:
         print(f"❌ FATAL: Could not empty {filename}: permission denied and sudo not available")
         return False
 
-    result = _run_sudo_command(["sh", "-c", f": > {file_path}"])
+    result = _run_sudo_command(["sh", "-c", ': > "$1"', "_", file_path])
     if result is None or result.returncode != 0:
         print(f"❌ FATAL: Could not empty {filename}: {_format_sudo_error(result)}")
         return False
