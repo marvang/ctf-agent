@@ -682,6 +682,7 @@ def main():
                         agent_ips=agent_ips,
                         local_arch=local_arch,
                         session_path=session_path,
+                        use_pty=USE_PTY_MODE,
                     )
                     relay_count += 1
 
@@ -717,7 +718,7 @@ def main():
             )
             messages.append(assistant_message)
 
-            if not shell_cmd_clean:
+            if not shell_cmd_clean and not (USE_PTY_MODE and stdin_input.strip()):
                 empty_command_count += 1
 
                 if empty_command_count < MAX_EMPTY_COMMAND_RETRIES:
@@ -854,6 +855,7 @@ def main():
                     agent_ips=agent_ips,
                     local_arch=local_arch,
                     session_path=session_path,
+                    use_pty=USE_PTY_MODE,
                 )
                 relay_count += 1
 

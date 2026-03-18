@@ -13,10 +13,10 @@ dependencies = [
     "cryptography>=46.0.3",
     "matplotlib>=3.10.7",
     "numpy>=2.2.6",
+    "pexpect>=4.9.0",
 ]
 
 [dependency-groups]
 dev = [
-    "pexpect>=4.9.0",
     "ruff>=0.15.6",
 ]

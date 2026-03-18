@@ -647,13 +647,13 @@ dependencies = [
     { name = "matplotlib" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pexpect" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "pexpect" },
     { name = "ruff" },
 ]
 
@@ -665,15 +665,13 @@ requires-dist = [
     { name = "ipykernel", specifier = ">=6.30.1" },
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "numpy", specifier = ">=2.2.6" },
+    { name = "pexpect", specifier = ">=4.9.0" },
     { name = "python-dotenv", specifier = ">=0.9.9" },
     { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "pexpect", specifier = ">=4.9.0" },
-    { name = "ruff", specifier = ">=0.15.6" },
-]
+dev = [{ name = "ruff", specifier = ">=0.15.6" }]
 
 [[package]]
 name = "cycler"

@@ -352,6 +352,7 @@ def run_experiment_agent(
                     agent_ips=agent_ips,
                     local_arch=local_arch,
                     session_path=session_path,
+                    use_pty=use_pty,
                 )
                 relay += 1
 
@@ -398,7 +399,7 @@ def run_experiment_agent(
         )
         messages.append(assistant_message)
 
-        if not shell_cmd_clean:
+        if not shell_cmd_clean and not (use_pty and stdin_input.strip()):
             empty_command_count += 1
 
             if empty_command_count < MAX_EMPTY_COMMAND_RETRIES:
@@ -516,6 +517,7 @@ def run_experiment_agent(
                 agent_ips=agent_ips,
                 local_arch=local_arch,
                 session_path=session_path,
+                use_pty=use_pty,
             )
             relay += 1
 
