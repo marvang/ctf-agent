@@ -8,12 +8,15 @@ Usage:
     python scripts/run_experiment.py --no-chap --name "chap_disabled"
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import sys
 import time
 from datetime import datetime
+from typing import Any
 
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -107,7 +110,7 @@ RESULTS_DIR = "./results"
 EXPERIMENT_SET_NAME = "default"
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command line arguments to override defaults."""
     parser = argparse.ArgumentParser(description="Run CTF experiments")
 
@@ -145,7 +148,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def apply_cli_overrides(args):
+def apply_cli_overrides(args: argparse.Namespace) -> None:
     """Apply CLI arguments to global config variables."""
     global CHAP_ENABLED, EXPERIMENT_SET_NAME, CHAP_TOKEN_LIMIT_BASE
     global MODEL_NAME, CHAP_TOKEN_LIMIT_INCREMENT, CHAP_AUTO_TRIGGER
@@ -172,12 +175,12 @@ def get_custom_instructions_for_challenge(challenge_name: str) -> str:
 
 
 def save_results(
-    results: list,
+    results: list[dict[str, Any]],
     results_dir: str,
     experiment_dir: str | None = None,
     experiment_timestamp: str | None = None,
     termination_reason: str | None = None,
-):
+) -> None:
     """Save experiment results to structured per-challenge files."""
     os.makedirs(results_dir, exist_ok=True)
     timestamp = experiment_timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -252,7 +255,7 @@ def save_results(
     print(f"💾 Results saved to {experiment_dir}")
 
 
-def main():
+def main() -> None:
     """Run experiments on all CTF challenges"""
     # Parse CLI args and apply overrides
     args = parse_args()
@@ -275,7 +278,7 @@ def main():
     print("\n🌐 Ensuring Docker network is available...")
     start_network()
 
-    results = []
+    results: list[dict[str, Any]] = []
     experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     discord_experiment_id = f"{EXPERIMENT_SET_NAME}-{experiment_id}" if EXPERIMENT_SET_NAME else experiment_id
     results_dir = os.path.join(RESULTS_DIR, EXPERIMENT_SET_NAME) if EXPERIMENT_SET_NAME else RESULTS_DIR

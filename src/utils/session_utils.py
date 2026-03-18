@@ -1,7 +1,9 @@
 """Session display and summary utilities"""
 
+from typing import Any
 
-def _count_session_commands(session: dict) -> int:
+
+def _count_session_commands(session: dict[str, Any]) -> int:
     """Count executed commands across replay events, with legacy fallback."""
     events = session.get("events")
     if isinstance(events, list):
@@ -14,7 +16,7 @@ def _count_session_commands(session: dict) -> int:
     return 0
 
 
-def display_session_summary(session: dict, iterations: int, elapsed_seconds: float, selected_model: str):
+def display_session_summary(session: dict[str, Any], iterations: int, elapsed_seconds: float, selected_model: str) -> None:
     """Display final session statistics"""
     elapsed_minutes = elapsed_seconds / 60
     elapsed_hours = elapsed_minutes / 60

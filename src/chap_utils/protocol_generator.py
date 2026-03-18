@@ -171,20 +171,26 @@ def rebuild_protocol_request_messages(
     if parsed.get("builder_version") != _PROTOCOL_REQUEST_BUILDER_VERSION:
         raise ValueError("Unsupported protocol request builder version")
 
-    system_event_index = parsed.get("system_event_index")
-    history_agent_number = parsed.get("history_agent_number")
-    history_end_event_index = parsed.get("history_end_event_index")
-    prior_protocol_count = parsed.get("prior_protocol_count")
+    _system_event_index = parsed.get("system_event_index")
+    _history_agent_number = parsed.get("history_agent_number")
+    _history_end_event_index = parsed.get("history_end_event_index")
+    _prior_protocol_count = parsed.get("prior_protocol_count")
     if not all(
         isinstance(value, int)
         for value in (
-            system_event_index,
-            history_agent_number,
-            history_end_event_index,
-            prior_protocol_count,
+            _system_event_index,
+            _history_agent_number,
+            _history_end_event_index,
+            _prior_protocol_count,
         )
     ):
         raise ValueError("Protocol request event is missing required reconstruction indices")
+
+    # Narrowed by the isinstance check above
+    system_event_index: int = _system_event_index  # type: ignore[assignment]
+    history_agent_number: int = _history_agent_number  # type: ignore[assignment]
+    history_end_event_index: int = _history_end_event_index  # type: ignore[assignment]
+    prior_protocol_count: int = _prior_protocol_count  # type: ignore[assignment]
 
     events = session.get("events", [])
     if not isinstance(events, list):

@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from src.llm_utils.response_schema import get_ctf_response_schema
 
 
-def _call_openrouter_api(messages: list, model_name: str, response_schema: dict) -> dict:
+def _call_openrouter_api(messages: list[dict[str, Any]], model_name: str, response_schema: dict[str, Any]) -> dict[str, Any]:
     """Send a request to the OpenRouter API with retry logic.
 
     Handles API key loading, request construction, and retries (3 attempts)
@@ -49,7 +49,7 @@ def _call_openrouter_api(messages: list, model_name: str, response_schema: dict)
     for attempt in range(1, max_attempts + 1):
         try:
             with request.urlopen(req, timeout=600) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+                data: dict[str, Any] = json.loads(resp.read().decode("utf-8"))
             return data
         except HTTPError as e:
             error_details = {
@@ -122,7 +122,7 @@ def _call_openrouter_api(messages: list, model_name: str, response_schema: dict)
     raise RuntimeError("OpenRouter API error: exhausted all retry attempts")
 
 
-def parse_llm_error(exception: Exception) -> dict:
+def parse_llm_error(exception: Exception) -> dict[str, Any]:
     """Parse structured error details from an LLM API exception.
 
     Attempts to extract JSON error metadata from RuntimeError messages
@@ -132,13 +132,14 @@ def parse_llm_error(exception: Exception) -> dict:
     if "OpenRouter API error:" in error_str:
         try:
             json_start = error_str.index("{")
-            return json.loads(error_str[json_start:])
+            result: dict[str, Any] = json.loads(error_str[json_start:])
+            return result
         except (ValueError, json.JSONDecodeError):
             return {"raw_error": error_str}
     return {"raw_error": error_str}
 
 
-def _extract_openrouter_message_fields(data: dict) -> tuple[str, str]:
+def _extract_openrouter_message_fields(data: dict[str, Any]) -> tuple[str, str]:
     """Return normalized message content and separate reasoning text."""
     try:
         message = data["choices"][0]["message"]
@@ -155,7 +156,7 @@ def _extract_openrouter_message_fields(data: dict) -> tuple[str, str]:
     return json.dumps(content), reasoning
 
 
-def call_openrouter_with_history(messages: list, model_name: str) -> tuple[str, str, dict[str, Any], str]:
+def call_openrouter_with_history(messages: list[dict[str, Any]], model_name: str) -> tuple[str, str, dict[str, Any], str]:
     """
     Call OpenRouter API with full message history for context-aware responses.
 
@@ -228,7 +229,7 @@ def call_openrouter_with_history(messages: list, model_name: str) -> tuple[str, 
 
 
 # For Protocol Generation - structured output with reasoning + protocol
-def call_openrouter_protocol(messages: list, model_name: str) -> tuple[str, str, dict[str, Any]]:
+def call_openrouter_protocol(messages: list[dict[str, Any]], model_name: str) -> tuple[str, str, dict[str, Any]]:
     """
     Call OpenRouter API for protocol generation with structured output.
 

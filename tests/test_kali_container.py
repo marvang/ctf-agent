@@ -2,7 +2,7 @@ import inspect
 import subprocess
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import main
 import scripts.run_experiment as run_experiment
@@ -14,8 +14,8 @@ from src.config.constants import KALI_CONTAINER_NAME
 
 class KaliContainerConfigTests(unittest.TestCase):
     def test_shared_kali_container_name_is_used_across_entrypoints(self) -> None:
-        self.assertEqual(main.KALI_CONTAINER_NAME, KALI_CONTAINER_NAME)
-        self.assertEqual(run_experiment.KALI_CONTAINER_NAME, KALI_CONTAINER_NAME)
+        self.assertEqual(main.KALI_CONTAINER_NAME, KALI_CONTAINER_NAME)  # type: ignore[attr-defined]
+        self.assertEqual(run_experiment.KALI_CONTAINER_NAME, KALI_CONTAINER_NAME)  # type: ignore[attr-defined]
 
     def test_helper_defaults_use_shared_kali_container_name(self) -> None:
         self.assertEqual(
@@ -59,10 +59,10 @@ class KaliContainerConfigTests(unittest.TestCase):
 
 
 class StartKaliContainerTests(unittest.TestCase):
-    @patch.object(docker_ops.subprocess, "run")
+    @patch.object(docker_ops.subprocess, "run")  # type: ignore[attr-defined]
     def test_start_kali_container_uses_compose_up_with_shared_name(
         self,
-        run_mock,
+        run_mock: MagicMock,
     ) -> None:
         run_mock.return_value = subprocess.CompletedProcess(args=[], returncode=0)
 
@@ -79,10 +79,10 @@ class StartKaliContainerTests(unittest.TestCase):
 
 
 class StopKaliContainerTests(unittest.TestCase):
-    @patch.object(docker_ops.subprocess, "run")
+    @patch.object(docker_ops.subprocess, "run")  # type: ignore[attr-defined]
     def test_stop_kali_container_force_removes_named_container(
         self,
-        run_mock,
+        run_mock: MagicMock,
     ) -> None:
         run_mock.return_value = subprocess.CompletedProcess(
             args=[],
@@ -100,10 +100,10 @@ class StopKaliContainerTests(unittest.TestCase):
             text=True,
         )
 
-    @patch.object(docker_ops.subprocess, "run")
+    @patch.object(docker_ops.subprocess, "run")  # type: ignore[attr-defined]
     def test_stop_kali_container_succeeds_when_container_is_absent(
         self,
-        run_mock,
+        run_mock: MagicMock,
     ) -> None:
         run_mock.return_value = subprocess.CompletedProcess(
             args=[],
@@ -116,10 +116,10 @@ class StopKaliContainerTests(unittest.TestCase):
 
         self.assertTrue(result)
 
-    @patch.object(docker_ops.subprocess, "run")
+    @patch.object(docker_ops.subprocess, "run")  # type: ignore[attr-defined]
     def test_stop_kali_container_fails_on_other_docker_errors(
         self,
-        run_mock,
+        run_mock: MagicMock,
     ) -> None:
         run_mock.return_value = subprocess.CompletedProcess(
             args=[],

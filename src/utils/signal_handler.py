@@ -1,14 +1,19 @@
 """Cleanup and signal handling utilities for graceful shutdown"""
 
+from __future__ import annotations
+
 import signal
 import sys
 import time
+from collections.abc import Callable
+from types import FrameType
+from typing import Any
 
 from src.utils.session_utils import display_session_summary
 from src.utils.vpn import disconnect_vpn
 
 # Global variables for cleanup in signal handler
-_cleanup_data = {
+_cleanup_data: dict[str, Any] = {
     "container": None,
     "vpn_connected": False,
     "vpn_env": "private",
@@ -22,7 +27,7 @@ _cleanup_data = {
 }
 
 
-def signal_handler(sig, frame):
+def signal_handler(sig: int, frame: FrameType | None) -> None:
     """Handle interrupt signal (Ctrl+C) for graceful shutdown"""
     print("\\n\\n👋 Shutting down...")
 
@@ -52,61 +57,61 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 
-def register_signal_handler():
+def register_signal_handler() -> None:
     """Register the signal handler for graceful shutdown"""
     signal.signal(signal.SIGINT, signal_handler)
 
 
-def set_container(container):
+def set_container(container: Any) -> None:
     """Store container reference for cleanup"""
     _cleanup_data["container"] = container
 
 
-def set_vpn_connected(connected: bool):
+def set_vpn_connected(connected: bool) -> None:
     """Update VPN connection status for cleanup"""
     _cleanup_data["vpn_connected"] = connected
 
 
-def set_session(session: dict):
+def set_session(session: dict[str, Any]) -> None:
     """Store session reference for cleanup"""
     _cleanup_data["session"] = session
 
 
 def is_vpn_connected() -> bool:
     """Check if VPN is currently connected"""
-    return _cleanup_data["vpn_connected"]
+    return bool(_cleanup_data["vpn_connected"])
 
 
-def set_iteration(iteration: int):
+def set_iteration(iteration: int) -> None:
     """Store current iteration count for cleanup"""
     _cleanup_data["iteration"] = iteration
 
 
-def set_start_time(start_time: float):
+def set_start_time(start_time: float) -> None:
     """Store session start time for cleanup"""
     _cleanup_data["start_time"] = start_time
 
 
-def set_model(model: str):
+def set_model(model: str) -> None:
     """Store model name for cleanup"""
     _cleanup_data["model"] = model
 
 
-def set_vpn_env(env: str):
+def set_vpn_env(env: str) -> None:
     """Store VPN environment type for cleanup"""
     _cleanup_data["vpn_env"] = env
 
 
-def set_save_callback(callback):
+def set_save_callback(callback: Callable[[], None]) -> None:
     """Store save callback for interrupt handler"""
     _cleanup_data["save_callback"] = callback
 
 
-def set_cleanup_callback(callback):
+def set_cleanup_callback(callback: Callable[[], None]) -> None:
     """Store cleanup callback for interrupt handler"""
     _cleanup_data["cleanup_callback"] = callback
 
 
-def set_session_dir(path: str):
+def set_session_dir(path: str) -> None:
     """Store session directory path for interrupt handler"""
     _cleanup_data["session_dir"] = path

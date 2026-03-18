@@ -2,7 +2,7 @@ import subprocess
 import tempfile
 import unittest
 from textwrap import dedent
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import src.experiment_utils.docker_ops as docker_ops
 from src.config.constants import (
@@ -30,10 +30,10 @@ class LocalChallengesTests(unittest.TestCase):
 
 
 class LocalChallengeDockerLifecycleTests(unittest.TestCase):
-    @patch.object(docker_ops.subprocess, "run")
+    @patch.object(docker_ops.subprocess, "run")  # type: ignore[attr-defined]
     def test_start_container_force_recreates_fresh_service_container(
         self,
-        run_mock,
+        run_mock: MagicMock,
     ) -> None:
         run_mock.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         compose_content = dedent(
@@ -71,10 +71,10 @@ class LocalChallengeDockerLifecycleTests(unittest.TestCase):
             check=True,
         )
 
-    @patch.object(docker_ops.subprocess, "run")
+    @patch.object(docker_ops.subprocess, "run")  # type: ignore[attr-defined]
     def test_stop_container_removes_service_container(
         self,
-        run_mock,
+        run_mock: MagicMock,
     ) -> None:
         run_mock.return_value = subprocess.CompletedProcess(args=[], returncode=0)
 

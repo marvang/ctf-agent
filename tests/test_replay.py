@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import scripts.replay_openrouter_messages as replay_script
 import src.chap_utils.protocol_generator as protocol_generator
@@ -83,7 +83,7 @@ class ReplayHelperTests(unittest.TestCase):
     @patch.object(protocol_generator, "call_openrouter_protocol")
     def test_rebuild_protocol_generation_call_matches_runtime_messages(
         self,
-        call_protocol_mock,
+        call_protocol_mock: MagicMock,
     ) -> None:
         call_protocol_mock.return_value = (
             "summarize",

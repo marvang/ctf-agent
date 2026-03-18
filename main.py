@@ -16,11 +16,14 @@ synced between both files.
 
 """
 
+from __future__ import annotations
+
 import json
 import os
 import subprocess
 import time
 from datetime import datetime
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -99,7 +102,7 @@ LOCAL_CTF_STARTUP_DELAY_SECONDS = 30
 LOCAL_CTF_NETWORK_NAME = LOCAL_CHALLENGES_NETWORK_NAME
 
 
-def ensure_kali_container_running(kali_container_name: str = KALI_CONTAINER_NAME):
+def ensure_kali_container_running(kali_container_name: str = KALI_CONTAINER_NAME) -> Any:  # returns Container | None
     """Connect to the Kali container, starting it first if required."""
     _, container = connect_to_docker(kali_container_name=kali_container_name)
     if container is not None:
@@ -185,17 +188,17 @@ def remove_local_network_if_unused(network_name: str = LOCAL_CTF_NETWORK_NAME) -
 
 
 def save_interactive_results(
-    session: dict,
+    session: dict[str, Any],
     stopping_reason: str,
     error_message: str | None,
-    llm_error_details: dict | None,
+    llm_error_details: dict[str, Any] | None,
     relay_count: int,
     iteration: int,
     session_dir: str,
     selected_model: str,
     environment_mode: EnvironmentType,
     use_chap: bool,
-    chap_config: dict,
+    chap_config: dict[str, Any],
     local_arch: LocalArch | None,
     custom_instructions: str,
     challenge_name: str | None,
@@ -284,7 +287,7 @@ def save_interactive_results(
     print(f"💾 Results saved to {session_dir}")
 
 
-def main():
+def main() -> None:
     # Register signal handler for graceful shutdown
     register_signal_handler()
     # Load environment variables
@@ -306,7 +309,7 @@ def main():
     vpn_connect_script: str | None = None
     cleanup_completed = False
 
-    def cleanup_on_exit():
+    def cleanup_on_exit() -> None:
         nonlocal cleanup_completed
         if cleanup_completed:
             return
@@ -510,7 +513,7 @@ def main():
     _results_saved = False
 
     # Register save callback for signal handler (Ctrl+C)
-    def save_on_interrupt():
+    def save_on_interrupt() -> None:
         nonlocal _results_saved
         session["metrics"]["total_iterations"] = iteration
         session["metrics"]["total_time"] = time.time() - session_start_time
