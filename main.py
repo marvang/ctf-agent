@@ -102,7 +102,7 @@ LOCAL_CTF_STARTUP_DELAY_SECONDS = 30
 LOCAL_CTF_NETWORK_NAME = LOCAL_CHALLENGES_NETWORK_NAME
 
 
-def ensure_kali_container_running(kali_container_name: str = KALI_CONTAINER_NAME) -> Any:
+def ensure_kali_container_running(kali_container_name: str = KALI_CONTAINER_NAME) -> Any:  # returns Container | None
     """Connect to the Kali container, starting it first if required."""
     _, container = connect_to_docker(kali_container_name=kali_container_name)
     if container is not None:
