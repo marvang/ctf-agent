@@ -1,6 +1,35 @@
+import json
 import os
 
 from src.config.constants import LOCAL_CHALLENGES_ROOT_STR
+
+# Directory where an external script drops flag data for VPN/remote targets.
+# Expected format: a JSON file (e.g., flags.json) with {"challenge_name": ["flag1", ...], ...}
+VPN_FLAGS_DIR = "./vpn-flags"
+
+
+def load_vpn_flags(flags_dir: str = VPN_FLAGS_DIR) -> dict[str, list[str]]:
+    """Load expected flags from a JSON file produced by an external retrieval script.
+
+    Looks for any .json file in flags_dir. The JSON should map challenge names to
+    flag lists: {"vm0": ["flag{...}"], "vm1": ["flag{...}"], ...}
+
+    Returns:
+        Dict mapping challenge names to flag lists. Empty dict if no flags found.
+    """
+    if not os.path.isdir(flags_dir):
+        return {}
+
+    for entry in os.scandir(flags_dir):
+        if entry.name.endswith(".json") and entry.is_file():
+            try:
+                with open(entry.path) as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    return {k: v if isinstance(v, list) else [v] for k, v in data.items()}
+            except (json.JSONDecodeError, OSError) as exc:
+                print(f"⚠️ Could not load VPN flags from {entry.path}: {exc}")
+    return {}
 
 
 def get_expected_flag(challenge_name: str, ctf_flag_path: str) -> list[str] | None:

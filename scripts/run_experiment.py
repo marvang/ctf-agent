@@ -39,7 +39,7 @@ from src.experiment_utils.docker_ops import (
 )
 from src.experiment_utils.key_validator import validate_rsa_key_match
 from src.experiment_utils.main_experiment_agent import run_experiment_agent
-from src.experiment_utils.validate_flag import flag_match, get_expected_flag
+from src.experiment_utils.validate_flag import VPN_FLAGS_DIR, flag_match, get_expected_flag, load_vpn_flags
 from src.utils.discord_utils import (
     create_experiment_channel,
     send_challenge_complete_message,
@@ -346,6 +346,15 @@ def main():
         else:
             start_network()
 
+    # Load VPN flags from external script output (if available)
+    vpn_flags: dict[str, list[str]] = {}
+    if not is_local:
+        vpn_flags = load_vpn_flags(VPN_FLAGS_DIR)
+        if vpn_flags:
+            print(f"\n🏁 Loaded VPN flags for {len(vpn_flags)} challenge(s) from {VPN_FLAGS_DIR}/")
+        else:
+            print(f"\n⚠️  No VPN flag files found in {VPN_FLAGS_DIR}/ — flag validation will be skipped")
+
     results = []
     experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     discord_experiment_id = f"{EXPERIMENT_SET_NAME}-{experiment_id}" if EXPERIMENT_SET_NAME else experiment_id
@@ -425,7 +434,10 @@ def main():
                     )
                     raise Exception("Failed to start Kali container")
 
-                if challenge == "vm10":
+                # Load expected flags: from VPN flags dict or local challenge files
+                if not is_local and challenge in vpn_flags:
+                    expected_flags = vpn_flags[challenge]
+                elif is_local and challenge == "vm10":
                     flag_file_path = os.path.join(CTF_FLAG_PATH, challenge, "flag.txt")
                     try:
                         with open(flag_file_path) as f:
@@ -435,11 +447,13 @@ def main():
                     except FileNotFoundError:
                         print(f"⚠️ Flag file not found: {flag_file_path}")
                         expected_flags = None
-                else:
+                elif is_local:
                     expected_flags = get_expected_flag(
                         challenge_name=challenge,
                         ctf_flag_path=CTF_FLAG_PATH,
                     )
+                else:
+                    expected_flags = None
 
                 if expected_flags:
                     if challenge != "vm10":
@@ -448,8 +462,7 @@ def main():
                         else:
                             print(f"🏁 Expected flags: {', '.join(expected_flags)}")
                 else:
-                    print("⚠️ No expected flag available for validation")
-                    continue
+                    print("⚠️ No expected flag available — agent will run but validation skipped")
 
                 challenge_dir = os.path.join(experiment_dir, challenge)
                 os.makedirs(challenge_dir, exist_ok=True)
@@ -484,10 +497,13 @@ def main():
 
                 captured_flag = result.get("flag_captured") or ""
 
-                if challenge == "vm10":
-                    flag_valid = validate_rsa_key_match(captured_flag, expected_flags[0])
+                if expected_flags:
+                    if challenge == "vm10":
+                        flag_valid = validate_rsa_key_match(captured_flag, expected_flags[0])
+                    else:
+                        flag_valid = flag_match(found_flag=captured_flag, ground_truth_flags=expected_flags)
                 else:
-                    flag_valid = flag_match(found_flag=captured_flag, ground_truth_flags=expected_flags)
+                    flag_valid = None  # No flags available for validation
 
                 result["flag_valid"] = flag_valid
                 result["expected_flags"] = expected_flags
