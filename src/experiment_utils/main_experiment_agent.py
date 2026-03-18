@@ -494,7 +494,7 @@ def run_experiment_agent(
                 session=session,
                 messages=messages,
                 model_name=model_name,
-                environment_mode="local",
+                environment_mode=environment_mode,
                 target_info=target_ip,
                 custom_instructions=custom_instructions,
                 current_iteration=iteration,
