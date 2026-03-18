@@ -16,6 +16,7 @@ synced between both files.
 
 """
 
+import argparse
 import json
 import os
 import subprocess
@@ -33,18 +34,23 @@ from src.config.constants import (
     MAX_EMPTY_COMMAND_RETRIES,
     MAX_OUTPUT_LENGTH,
 )
+from src.config.session_runtime import SessionRuntime, resolve_session_runtime
 from src.config.workspace import (
-    WORKSPACE_DIR,
     WORKSPACE_FILES_TO_EMPTY,
+    ensure_workspace_dir,
     load_workspace_approved_patterns,
     read_captured_flag,
 )
 from src.experiment_utils.docker_ops import (
+    start_challenge_container_standalone,
     start_container,
     start_kali_container,
+    start_kali_container_standalone,
     start_network,
+    stop_challenge_container_standalone,
     stop_container,
     stop_kali_container,
+    stop_network,
 )
 from src.llm_utils.openrouter import call_openrouter_with_history, parse_llm_error
 from src.llm_utils.prompt_builder import build_initial_messages
@@ -99,7 +105,10 @@ LOCAL_CTF_STARTUP_DELAY_SECONDS = 30
 LOCAL_CTF_NETWORK_NAME = LOCAL_CHALLENGES_NETWORK_NAME
 
 
-def ensure_kali_container_running(kali_container_name: str = KALI_CONTAINER_NAME):
+def ensure_kali_container_running(
+    kali_container_name: str = KALI_CONTAINER_NAME,
+    network_name: str = LOCAL_CHALLENGES_NETWORK_NAME,
+):
     """Connect to the Kali container, starting it first if required."""
     _, container = connect_to_docker(kali_container_name=kali_container_name)
     if container is not None:
@@ -108,10 +117,10 @@ def ensure_kali_container_running(kali_container_name: str = KALI_CONTAINER_NAME
     if container is None or container.status != "running":
         print(f"\n🔄 Docker container '{kali_container_name}' is not running. Starting it now...")
         try:
-            print(f"🌐 Ensuring Docker network '{LOCAL_CTF_NETWORK_NAME}' is available...")
-            start_network()
+            print(f"🌐 Ensuring Docker network '{network_name}' is available...")
+            start_network(network_name)
         except Exception as exc:
-            print(f"❌ Failed to prepare Docker network '{LOCAL_CTF_NETWORK_NAME}': {exc}")
+            print(f"❌ Failed to prepare Docker network '{network_name}': {exc}")
             return None
 
         if not start_kali_container(kali_container_name):
@@ -201,6 +210,8 @@ def save_interactive_results(
     challenge_name: str | None,
     target_ip: str,
     timestamp: str,
+    workspace_dir: str,
+    session_runtime: SessionRuntime,
 ) -> None:
     """Save interactive session results to structured per-run files (mirrors experiment format)."""
     os.makedirs(session_dir, exist_ok=True)
@@ -211,13 +222,17 @@ def save_interactive_results(
     persist_session(session, session_path)
 
     # 2. summary.json - Lightweight metrics (no command history)
-    captured_flag = read_captured_flag()
+    captured_flag = read_captured_flag(workspace_dir)
     summary = {
         "mode": "interactive",
         "challenge_name": challenge_name,
         "environment_mode": environment_mode,
         "target_ip": target_ip,
         "flag_captured": captured_flag,
+        "session_id": session_runtime.session_id,
+        "workspace_dir": os.path.abspath(workspace_dir),
+        "kali_container_name": session_runtime.kali_container_name,
+        "network_name": session_runtime.network_name,
         "iterations": iteration,
         "relay_count": relay_count,
         "relay_triggers": session.get("relay_triggers", []),
@@ -275,6 +290,10 @@ def save_interactive_results(
             "command_timeout_seconds": COMMAND_TIMEOUT_SECONDS,
             "stopping_reason": stopping_reason,
             "results_dir": os.path.abspath(session_dir),
+            "workspace_dir": os.path.abspath(workspace_dir),
+            "session_id": session_runtime.session_id,
+            "kali_container_name": session_runtime.kali_container_name,
+            "network_name": session_runtime.network_name,
         }
     }
     summary_meta_path = os.path.join(session_dir, "session_summary.json")
@@ -284,7 +303,23 @@ def save_interactive_results(
     print(f"💾 Results saved to {session_dir}")
 
 
+def _parse_main_args() -> argparse.Namespace:
+    """Parse CLI arguments for interactive mode."""
+    parser = argparse.ArgumentParser(description="CTF Agent - Interactive Mode")
+    parser.add_argument(
+        "--session-id",
+        type=str,
+        default=None,
+        help="Session ID for isolated Docker/workspace resources",
+    )
+    return parser.parse_args()
+
+
 def main():
+    cli_args = _parse_main_args()
+    session_runtime = resolve_session_runtime(cli_args.session_id)
+    workspace_dir = ensure_workspace_dir(session_runtime.workspace_dir)
+
     # Register signal handler for graceful shutdown
     register_signal_handler()
     # Load environment variables
@@ -292,6 +327,11 @@ def main():
 
     # Display banner and get user selections
     print_banner()
+    if session_runtime.isolated:
+        print(f"Session ID: {session_runtime.session_id}")
+        print(f"Kali container: {session_runtime.kali_container_name}")
+        print(f"Network: {session_runtime.network_name} ({session_runtime.subnet})")
+        print(f"Workspace: {workspace_dir}")
     environment_mode, vpn_environment = prompt_environment_selection()
     local_arch: LocalArch | None = None
     if environment_mode == "local":
@@ -300,6 +340,7 @@ def main():
     use_vpn = uses_vpn(environment_mode)
 
     challenge_name: str | None = None
+    challenge_container_name: str | None = None
     target_ip = ""
     target_info = ""
     container = None
@@ -321,9 +362,18 @@ def main():
 
         if environment_mode == "local":
             if challenge_name:
-                stop_local_challenge(challenge_name)
-            stop_kali_container(KALI_CONTAINER_NAME)
-            remove_local_network_if_unused()
+                if session_runtime.isolated and challenge_container_name is not None:
+                    stop_challenge_container_standalone(challenge_container_name)
+                else:
+                    stop_local_challenge(challenge_name)
+            stop_kali_container(session_runtime.kali_container_name)
+            if session_runtime.isolated:
+                stop_network(session_runtime.network_name)
+            else:
+                remove_local_network_if_unused(session_runtime.network_name)
+        elif session_runtime.isolated:
+            stop_kali_container(session_runtime.kali_container_name)
+            stop_network(session_runtime.network_name)
 
     set_cleanup_callback(cleanup_on_exit)
 
@@ -339,7 +389,7 @@ def main():
 
     # Clean up workspace files from previous sessions
     if not cleanup_workspace(
-        WORKSPACE_DIR,
+        workspace_dir,
         approved_workspace_patterns,
         WORKSPACE_FILES_TO_EMPTY,
     ):
@@ -352,14 +402,29 @@ def main():
             return
 
         try:
-            print("\n🌐 Ensuring Docker network is available...")
-            start_network()
+            if session_runtime.isolated:
+                print(f"\n🌐 Ensuring Docker network '{session_runtime.network_name}' is available...")
+                start_network(session_runtime.network_name, session_runtime.subnet)
+            else:
+                print("\n🌐 Ensuring Docker network is available...")
+                start_network()
 
             print(f"\n🧹 Resetting local challenge: {challenge_name}")
-            stop_local_challenge(challenge_name, quiet=True)
+            challenge_container_name = session_runtime.challenge_container_name(challenge_name)
+            if session_runtime.isolated:
+                stop_challenge_container_standalone(challenge_container_name)
+            else:
+                stop_local_challenge(challenge_name, quiet=True)
 
             print(f"\n📦 Starting vulnerable container: {challenge_name}")
-            target_ip = start_container(challenge_name)
+            if session_runtime.isolated:
+                target_ip = start_challenge_container_standalone(
+                    challenge_name=challenge_name,
+                    container_name=challenge_container_name,
+                    network_name=session_runtime.network_name,
+                )
+            else:
+                target_ip = start_container(challenge_name)
             print(f"✅ Container started at {target_ip}")
 
             print(f"⏳ Waiting {LOCAL_CTF_STARTUP_DELAY_SECONDS}s for service to initialize...")
@@ -371,8 +436,26 @@ def main():
             return
 
         target_info = f"{challenge_name} ({target_ip})"
+    elif session_runtime.isolated:
+        try:
+            print(f"\n🌐 Ensuring Docker network '{session_runtime.network_name}' is available...")
+            start_network(session_runtime.network_name, session_runtime.subnet)
+        except Exception as exc:
+            print(f"\n❌ Failed to prepare Docker network '{session_runtime.network_name}': {exc}")
+            cleanup_on_exit()
+            return
 
-    container = ensure_kali_container_running(KALI_CONTAINER_NAME)
+    if session_runtime.isolated:
+        if not start_kali_container_standalone(
+            session_runtime.kali_container_name,
+            session_runtime.network_name,
+            workspace_dir,
+        ):
+            cleanup_on_exit()
+            return
+        _, container = connect_to_docker(kali_container_name=session_runtime.kali_container_name)
+    else:
+        container = ensure_kali_container_running(session_runtime.kali_container_name, session_runtime.network_name)
     if container is None:
         cleanup_on_exit()
         return
@@ -531,6 +614,8 @@ def main():
             challenge_name=challenge_name,
             target_ip=target_ip,
             timestamp=run_timestamp,
+            workspace_dir=workspace_dir,
+            session_runtime=session_runtime,
         )
         _results_saved = True
 
@@ -915,6 +1000,8 @@ def main():
                 challenge_name=challenge_name,
                 target_ip=target_ip,
                 timestamp=run_timestamp,
+                workspace_dir=workspace_dir,
+                session_runtime=session_runtime,
             )
 
         cleanup_on_exit()

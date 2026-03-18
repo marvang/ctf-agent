@@ -14,6 +14,7 @@ from src.config.constants import KALI_CONTAINER_NAME, MAX_EMPTY_COMMAND_RETRIES
 from src.config.workspace import (
     WORKSPACE_DIR,
     WORKSPACE_FILES_TO_EMPTY,
+    ensure_workspace_dir,
     load_workspace_approved_patterns,
     read_captured_flag,
 )
@@ -79,6 +80,7 @@ def run_experiment_agent(
     channel_id: str | None = None,
     local_arch: LocalArch = "aarch64",
     session_path: str | None = None,
+    workspace_dir: str = WORKSPACE_DIR,
 ) -> dict[str, Any]:
     """
     Run CTF agent in experiment mode (no user interaction)
@@ -99,6 +101,7 @@ def run_experiment_agent(
         custom_instructions: Additional instructions for the agent
         channel_id: Discord channel for webhook notifications (optional)
         local_arch: Local execution architecture used for prompt selection
+        workspace_dir: Host workspace directory mounted into the Kali container
 
     Returns:
         {
@@ -132,8 +135,9 @@ def run_experiment_agent(
     except RuntimeError as exc:
         return _error_result(str(exc), "workspace_config_error")
 
+    ensure_workspace_dir(workspace_dir)
     if not cleanup_workspace(
-        WORKSPACE_DIR,
+        workspace_dir,
         approved_workspace_patterns,
         WORKSPACE_FILES_TO_EMPTY,
         auto_confirm=True,
@@ -561,10 +565,10 @@ def run_experiment_agent(
     if session_path:
         persist_session(session, session_path)
     cleanup_tmux_session(container)
-    captured_flag = read_captured_flag()
+    captured_flag = read_captured_flag(workspace_dir)
 
     cleanup_workspace(
-        WORKSPACE_DIR,
+        workspace_dir,
         approved_workspace_patterns,
         WORKSPACE_FILES_TO_EMPTY,
         auto_confirm=True,

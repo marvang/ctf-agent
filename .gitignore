@@ -10,6 +10,7 @@ wheels/
 .venv
 .ruff_cache
 ctf-workspace/**
+ctf-workspaces/
 !ctf-workspace/vpn/
 !ctf-workspace/vpn/htb/
 !ctf-workspace/vpn/private/

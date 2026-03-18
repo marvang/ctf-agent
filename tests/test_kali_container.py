@@ -1,5 +1,6 @@
 import inspect
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -76,6 +77,51 @@ class StartKaliContainerTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+
+    @patch.object(docker_ops.subprocess, "run")
+    def test_start_kali_container_standalone_uses_isolated_workspace_mount(
+        self,
+        run_mock,
+    ) -> None:
+        run_mock.side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0),
+            subprocess.CompletedProcess(args=[], returncode=0),
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            compose_path = Path(temp_dir) / "docker-compose.yml"
+            workspace_path = Path(temp_dir) / "ctf-workspaces" / "session-1"
+            compose_path.write_text(
+                """
+services:
+  ctf-agent-kali:
+    image: ctf-agent-kali
+    tty: true
+    stdin_open: true
+    working_dir: /ctf-workspace
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./ctf-workspace:/ctf-workspace
+"""
+            )
+
+            result = docker_ops.start_kali_container_standalone(
+                container_name="ctf-agent-kali-session",
+                network_name="target_net_session",
+                workspace_dir=str(workspace_path),
+                compose_file=compose_path,
+            )
+
+            expected_mount = f"{workspace_path.resolve()}:/ctf-workspace"
+
+        self.assertTrue(result)
+        docker_run_command = run_mock.call_args_list[1].args[0]
+        self.assertIn("-i", docker_run_command)
+        self.assertIn("-t", docker_run_command)
+        self.assertIn("-w", docker_run_command)
+        self.assertIn("/ctf-workspace", docker_run_command)
+        self.assertIn("-v", docker_run_command)
+        self.assertIn(expected_mount, docker_run_command)
 
 
 class StopKaliContainerTests(unittest.TestCase):
