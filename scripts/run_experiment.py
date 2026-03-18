@@ -18,19 +18,14 @@ from datetime import datetime
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.config.constants import (
-    KALI_CONTAINER_NAME,
-    LOCAL_CHALLENGES_ROOT_STR,
-    get_session_challenge_name,
-    get_session_kali_name,
-    get_session_network_name,
-    get_session_subnet_from_id,
-)
+from src.config.constants import KALI_CONTAINER_NAME, LOCAL_CHALLENGES_ROOT_STR
 from src.config.experiment_custom_instructions import (
     DEFAULT_CUSTOM_INSTRUCTIONS,
     REAL_CHALLENGE_CUSTOM_INSTRUCTIONS,
     TEST_CHALLENGE_CUSTOM_INSTRUCTIONS,
 )
+from src.config.session_runtime import SessionRuntime, resolve_session_runtime
+from src.config.workspace import ensure_workspace_dir
 from src.experiment_utils.docker_ops import (
     start_challenge_container_standalone,
     start_container,
@@ -152,12 +147,11 @@ def parse_args():
     )
     parser.set_defaults(auto_trigger=None)  # None means use file default
 
-    # Session isolation
     parser.add_argument(
         "--session-id",
         type=str,
         default=None,
-        help="Session ID for container/network isolation (optional, enables parallel runs)",
+        help="Session ID for isolated Docker/workspace resources",
     )
 
     return parser.parse_args()
@@ -192,6 +186,7 @@ def get_custom_instructions_for_challenge(challenge_name: str) -> str:
 def save_results(
     results: list,
     results_dir: str,
+    session_runtime: SessionRuntime,
     experiment_dir: str | None = None,
     experiment_timestamp: str | None = None,
     termination_reason: str | None = None,
@@ -230,7 +225,11 @@ def save_results(
         "service_startup_delay_seconds": SERVICE_STARTUP_DELAY,
         "experiment_set_name": EXPERIMENT_SET_NAME,
         "discord_notifications_enabled": DISCORD_NOTIFICATIONS_ENABLED,
-        "kali_container_name": KALI_CONTAINER_NAME,
+        "default_kali_container_name": KALI_CONTAINER_NAME,
+        "kali_container_name": session_runtime.kali_container_name,
+        "session_id": session_runtime.session_id,
+        "network_name": session_runtime.network_name,
+        "workspace_dir": os.path.abspath(session_runtime.workspace_dir),
         "results_dir": os.path.abspath(results_dir),
         "termination_reason": termination_reason or "unknown",
         "use_amd64_prompt": LOCAL_ARCH == "amd64",
@@ -275,18 +274,8 @@ def main():
     # Parse CLI args and apply overrides
     args = parse_args()
     apply_cli_overrides(args)
-
-    # Session isolation: resolve container/network names
-    session_id: str | None = args.session_id
-    use_session_isolation = session_id is not None
-    if use_session_isolation:
-        kali_name = get_session_kali_name(session_id)
-        network_name = get_session_network_name(session_id)
-        subnet = get_session_subnet_from_id(session_id)
-    else:
-        kali_name = KALI_CONTAINER_NAME
-        network_name = None  # use defaults
-        subnet = None
+    session_runtime = resolve_session_runtime(args.session_id)
+    ensure_workspace_dir(session_runtime.workspace_dir)
 
     print("=" * 80)
     print("CTF EXPERIMENT SUITE")
@@ -300,15 +289,16 @@ def main():
     print(f"Max iterations: {MAX_ITERATIONS}")
     print(f"Max cost per challenge: ${MAX_COST}")
     print(f"Experiment name: {EXPERIMENT_SET_NAME}")
-    if use_session_isolation:
-        print(f"Session ID: {session_id}")
-        print(f"Kali container: {kali_name}")
-        print(f"Network: {network_name}")
+    if session_runtime.isolated:
+        print(f"Session ID: {session_runtime.session_id}")
+        print(f"Kali container: {session_runtime.kali_container_name}")
+        print(f"Network: {session_runtime.network_name} ({session_runtime.subnet})")
+        print(f"Workspace: {session_runtime.workspace_dir}")
     print("=" * 80)
 
-    print("\n🌐 Ensuring Docker network is available...")
-    if use_session_isolation:
-        start_network(network_name, subnet)
+    print(f"\n🌐 Ensuring Docker network '{session_runtime.network_name}' is available...")
+    if session_runtime.isolated:
+        start_network(session_runtime.network_name, session_runtime.subnet)
     else:
         start_network()
 
@@ -319,7 +309,7 @@ def main():
     experiment_dir = os.path.join(results_dir, f"experiment_{experiment_id}")
     os.makedirs(experiment_dir, exist_ok=True)
     termination_reason = "in_progress"
-    save_results(results, results_dir, experiment_dir, experiment_id, termination_reason)
+    save_results(results, results_dir, session_runtime, experiment_dir, experiment_id, termination_reason)
     total_challenges = len(CTF_CHALLENGES)
 
     channel_id = None
@@ -346,22 +336,18 @@ def main():
             print(f"\n{'=' * 80}")
             print(f"Challenge {idx}/{total_challenges}: {challenge}")
             print(f"{'=' * 80}")
-
-            # Resolve session-scoped challenge container name
-            challenge_container = (
-                get_session_challenge_name(challenge, session_id) if use_session_isolation else challenge
-            )
+            challenge_container_name = session_runtime.challenge_container_name(challenge)
 
             send_challenge_start_message(channel_id=channel_id, challenge=challenge, index=idx, total=total_challenges)
 
             try:
                 # Start vulnerable container
                 print(f"\n📦 Starting vulnerable container: {challenge}")
-                if use_session_isolation:
+                if session_runtime.isolated:
                     target_ip = start_challenge_container_standalone(
                         challenge_name=challenge,
-                        container_name=challenge_container,
-                        network_name=network_name,
+                        container_name=challenge_container_name,
+                        network_name=session_runtime.network_name,
                     )
                 else:
                     target_ip = start_container(challenge)
@@ -374,15 +360,19 @@ def main():
                 time.sleep(SERVICE_STARTUP_DELAY)
                 print("✅ Proceeding with challenge")
 
-                if use_session_isolation:
-                    kali_ok = start_kali_container_standalone(kali_name, network_name)
+                if session_runtime.isolated:
+                    kali_ok = start_kali_container_standalone(
+                        session_runtime.kali_container_name,
+                        session_runtime.network_name,
+                        session_runtime.workspace_dir,
+                    )
                 else:
-                    kali_ok = start_kali_container(kali_name)
+                    kali_ok = start_kali_container(session_runtime.kali_container_name)
 
                 if not kali_ok:
                     send_docker_connection_error_message(
                         channel_id=channel_id,
-                        container_name=kali_name,
+                        container_name=session_runtime.kali_container_name,
                         context={"challenge": challenge, "experiment_id": experiment_id},
                     )
                     raise Exception("Failed to start Kali container")
@@ -432,11 +422,12 @@ def main():
                     chap_token_limit_base=CHAP_TOKEN_LIMIT_BASE,
                     chap_token_limit_increment=CHAP_TOKEN_LIMIT_INCREMENT,
                     chap_min_iterations_for_relay=CHAP_MIN_ITERATIONS_FOR_RELAY,
-                    kali_container_name=kali_name,
+                    kali_container_name=session_runtime.kali_container_name,
                     custom_instructions=get_custom_instructions_for_challenge(challenge),
                     channel_id=channel_id,
                     local_arch=LOCAL_ARCH,
                     session_path=os.path.join(challenge_dir, "session.json"),
+                    workspace_dir=session_runtime.workspace_dir,
                 )
 
                 result["challenge_name"] = challenge
@@ -504,19 +495,19 @@ def main():
 
             finally:
                 print("\n🧹 Cleaning up...")
-                stop_kali_container(kali_name)
+                stop_kali_container(session_runtime.kali_container_name)
                 print(f"🧹 Stopping vulnerable container: {challenge}")
-                if use_session_isolation:
-                    stop_challenge_container_standalone(challenge_container)
+                if session_runtime.isolated:
+                    stop_challenge_container_standalone(challenge_container_name)
                 else:
                     stop_container(challenge)
 
-            save_results(results, results_dir, experiment_dir, experiment_id, termination_reason)
+            save_results(results, results_dir, session_runtime, experiment_dir, experiment_id, termination_reason)
 
     except KeyboardInterrupt:
         termination_reason = "interrupted_by_user"
         print("\n⚠️ Experiment interrupted by user. Saving partial results...")
-        save_results(results, results_dir, experiment_dir, experiment_id, termination_reason)
+        save_results(results, results_dir, session_runtime, experiment_dir, experiment_id, termination_reason)
 
         send_experiment_interrupted_message(
             channel_id=channel_id, partial_results=len(results), total_challenges=total_challenges
@@ -528,14 +519,14 @@ def main():
         import traceback
 
         traceback.print_exc()
-        save_results(results, results_dir, experiment_dir, experiment_id, termination_reason)
+        save_results(results, results_dir, session_runtime, experiment_dir, experiment_id, termination_reason)
 
         send_experiment_error_message(channel_id=channel_id, error_msg=str(e), partial_results=len(results))
 
     else:
         termination_reason = "completed"
         # Save results
-        save_results(results, results_dir, experiment_dir, experiment_id, termination_reason)
+        save_results(results, results_dir, session_runtime, experiment_dir, experiment_id, termination_reason)
 
         # Print final summary
         print("\n" + "=" * 80)
@@ -568,9 +559,9 @@ def main():
             },
         )
 
-    print("\n🛑 Stopping Docker network...")
-    if use_session_isolation:
-        stop_network(network_name)
+    print(f"\n🛑 Stopping Docker network '{session_runtime.network_name}'...")
+    if session_runtime.isolated:
+        stop_network(session_runtime.network_name)
     else:
         stop_network()
     print("Exit.")

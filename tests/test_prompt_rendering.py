@@ -9,6 +9,7 @@ import scripts.run_experiment as run_experiment
 import src.chap_utils.protocol_generator as protocol_generator
 import src.experiment_utils.main_experiment_agent as experiment_agent
 import src.utils.discord_utils.error_messages as error_messages
+from src.config.session_runtime import resolve_session_runtime
 from src.llm_utils.prompt_builder import build_initial_messages, build_relay_messages
 from src.utils.state_manager import (
     append_session_event,
@@ -165,6 +166,8 @@ class ResultMetadataTests(unittest.TestCase):
                 challenge_name="vm0",
                 target_ip="10.13.37.7",
                 timestamp="20260316_120000",
+                workspace_dir=temp_dir,
+                session_runtime=resolve_session_runtime(None),
             )
 
             with open(os.path.join(temp_dir, "session_summary.json")) as handle:
@@ -232,6 +235,8 @@ class ResultMetadataTests(unittest.TestCase):
                 challenge_name="vm0",
                 target_ip="10.13.37.7",
                 timestamp="20260316_120000",
+                workspace_dir=temp_dir,
+                session_runtime=resolve_session_runtime(None),
             )
 
             with open(os.path.join(temp_dir, "used_prompts.json")) as handle:
@@ -257,6 +262,7 @@ class ResultMetadataTests(unittest.TestCase):
                 run_experiment.save_results(
                     results=[],
                     results_dir=temp_dir,
+                    session_runtime=resolve_session_runtime(None),
                     experiment_dir=experiment_dir,
                     experiment_timestamp="20260316_120000",
                     termination_reason="completed",
@@ -327,6 +333,7 @@ class ResultMetadataTests(unittest.TestCase):
                     }
                 ],
                 results_dir=temp_dir,
+                session_runtime=resolve_session_runtime(None),
                 experiment_dir=experiment_dir,
                 experiment_timestamp="20260316_120000",
                 termination_reason="completed",
