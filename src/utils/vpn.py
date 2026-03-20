@@ -67,14 +67,6 @@ def discover_vpn_scripts(container, environment: str) -> list[str]:
     return [os.path.basename(f) for f in output.decode("utf-8", errors="replace").strip().splitlines() if f.strip()]
 
 
-def check_vpn_connection(container) -> bool:
-    try:
-        exit_code, _ = container.exec_run(["bash", "-c", "ip link show | grep tun"])
-        return exit_code == 0
-    except Exception:
-        return False
-
-
 def connect_vpn(container, environment: str = "private", connect_script: str | None = None) -> bool:
     env = ENVIRONMENTS[environment]
     connect_cmd = f"./{connect_script}" if connect_script else env["connect_cmd"]
@@ -88,11 +80,10 @@ def connect_vpn(container, environment: str = "private", connect_script: str | N
             if filtered:
                 print(filtered)
 
-        if exit_code == 0 and check_vpn_connection(container):
+        if exit_code == 0:
             print("✅ VPN connected")
             return True
-        if exit_code != 0:
-            print(f"⚠️  VPN connect script exited with code {exit_code}")
+        print(f"⚠️  VPN connect script exited with code {exit_code}")
         print("❌ VPN connection failed")
         return False
     except Exception as e:

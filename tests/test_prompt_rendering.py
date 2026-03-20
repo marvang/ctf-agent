@@ -102,6 +102,20 @@ class PromptRenderingTests(unittest.TestCase):
         self.assertIn("Target: Hack The Box", messages[1]["content"])
         self.assertIn("Agent VPN IP (tun0): 10.10.14.7", messages[1]["content"])
 
+    def test_remote_prompt_omits_vpn_ip_when_not_available(self) -> None:
+        messages = build_initial_messages(
+            environment_mode="private",
+            target_info="10.0.2.88",
+            use_chap=False,
+            custom_instructions="",
+            agent_ips={"eth0": "172.20.0.5"},
+            local_arch=None,
+        )
+
+        self.assertIn("Target: Private Cyber Range", messages[1]["content"])
+        self.assertIn("Agent Docker IP (eth0): 172.20.0.5", messages[1]["content"])
+        self.assertNotIn("Agent VPN IP (tun0):", messages[1]["content"])
+
     def test_relay_prompt_includes_protocols(self) -> None:
         messages = build_relay_messages(
             session={
@@ -263,6 +277,7 @@ class ResultMetadataTests(unittest.TestCase):
                     results=[],
                     results_dir=temp_dir,
                     session_runtime=resolve_session_runtime(None),
+                    challenges=["vm0"],
                     experiment_dir=experiment_dir,
                     experiment_timestamp="20260316_120000",
                     termination_reason="completed",
@@ -334,6 +349,7 @@ class ResultMetadataTests(unittest.TestCase):
                 ],
                 results_dir=temp_dir,
                 session_runtime=resolve_session_runtime(None),
+                challenges=["vm0"],
                 experiment_dir=experiment_dir,
                 experiment_timestamp="20260316_120000",
                 termination_reason="completed",

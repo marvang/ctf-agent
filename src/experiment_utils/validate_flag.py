@@ -1,6 +1,49 @@
+import json
 import os
+from dataclasses import dataclass
 
 from src.config.constants import LOCAL_CHALLENGES_ROOT_STR
+
+
+@dataclass
+class FlagEntry:
+    """A flag with its signature (first few hex chars shown to the agent) and full value."""
+
+    signature: str  # e.g. "dc5d6e"
+    flag: str  # e.g. "flag{dc5d6e5c0ffd6d1cd249286ced098382}"
+
+
+def load_flags_file(path: str) -> list[FlagEntry]:
+    """Load flags from a JSON file.
+
+    Expected format:
+    {
+      "flags": [
+        {"signature": "dc5d6e", "flag": "flag{dc5d6e5c0ffd6d1cd249286ced098382}"},
+        ...
+      ]
+    }
+
+    Returns:
+        List of FlagEntry objects.
+
+    Raises:
+        FileNotFoundError: if path does not exist.
+        ValueError: if JSON structure is invalid.
+    """
+    with open(path) as f:
+        data = json.load(f)
+
+    if not isinstance(data, dict) or "flags" not in data:
+        raise ValueError(f"Flags file must contain a 'flags' key: {path}")
+
+    entries = []
+    for item in data["flags"]:
+        if not isinstance(item, dict) or "signature" not in item or "flag" not in item:
+            raise ValueError(f"Each flag entry must have 'signature' and 'flag' keys: {item}")
+        entries.append(FlagEntry(signature=item["signature"], flag=item["flag"]))
+
+    return entries
 
 
 def get_expected_flag(challenge_name: str, ctf_flag_path: str) -> list[str] | None:
