@@ -657,21 +657,21 @@ def main():
             experiment_dir, experiment_id, termination_reason, vpn_connect_script,
         )
 
-        # Print final summary
         print("\n" + "=" * 80)
         print("EXPERIMENT SUITE COMPLETE")
         print("=" * 80)
-        print(f"Total challenges: {total_challenges}")
-        print(f"Successful: {sum(1 for r in results if r.get('flag_valid', False))}")
-        print(f"Failed: {sum(1 for r in results if not r.get('flag_valid', False))}")
-        print(f"Total cost: ${sum(r.get('total_cost', 0) for r in results):.4f}")
-        print(f"Total time: {sum(r.get('total_time', 0) for r in results):.1f}s")
-
-        # Flag validation summary
         valid_flags = sum(1 for r in results if r.get("flag_valid", False))
+        failed_flags = total_challenges - valid_flags
+        total_cost = sum(r.get("total_cost", 0) for r in results)
+        total_time = sum(r.get("total_time", 0) for r in results)
+
+        print(f"Total challenges: {total_challenges}")
+        print(f"Successful: {valid_flags}")
+        print(f"Failed: {failed_flags}")
+        print(f"Total cost: ${total_cost:.4f}")
+        print(f"Total time: {total_time:.1f}s")
         print("\nFlag validation:")
         print(f"  Valid flags captured: {valid_flags}/{total_challenges}")
-
         print("=" * 80)
 
         send_experiment_complete_message(
@@ -679,10 +679,10 @@ def main():
             results=results,
             metadata={
                 "total_challenges": total_challenges,
-                "successful": sum(1 for r in results if r.get("flag_valid", False)),
-                "failed": sum(1 for r in results if not r.get("flag_valid", False)),
-                "total_cost": sum(r.get("total_cost", 0) for r in results),
-                "total_time": sum(r.get("total_time", 0) for r in results),
+                "successful": valid_flags,
+                "failed": failed_flags,
+                "total_cost": total_cost,
+                "total_time": total_time,
                 "valid_flags": valid_flags,
                 "termination_reason": termination_reason,
             },
