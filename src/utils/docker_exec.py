@@ -7,6 +7,8 @@ from typing import Any
 import docker
 import docker.errors
 
+from src.utils.network_utils import find_vpn_interface, get_interface_ipv4
+
 TIMEOUT_EXIT_CODE = 124
 
 
@@ -79,26 +81,20 @@ def cleanup_tmux_session(container) -> None:
 
 
 def get_container_ips(container, use_vpn: bool) -> dict:
-    """Return dict with eth0 (and tun0 if VPN) IPs from the container."""
-    ips = {}
+    """Return dict with eth0 (and VPN interface if present) IPs from the container."""
+    ips: dict[str, str] = {}
 
     try:
-        exit_code, output = container.exec_run(
-            ["bash", "-lc", "ip addr show eth0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1"], tty=True
-        )
-        if exit_code == 0:
-            eth0_ip = output.decode().strip()
-            if eth0_ip:
-                ips["eth0"] = eth0_ip
+        eth0_ip = get_interface_ipv4(container, "eth0")
+        if eth0_ip:
+            ips["eth0"] = eth0_ip
 
         if use_vpn:
-            exit_code, output = container.exec_run(
-                ["bash", "-lc", "ip addr show tun0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1"], tty=True
-            )
-            if exit_code == 0:
-                tun0_ip = output.decode().strip()
-                if tun0_ip:
-                    ips["tun0"] = tun0_ip
+            vpn_iface = find_vpn_interface(container)
+            if vpn_iface:
+                vpn_ip = get_interface_ipv4(container, vpn_iface)
+                if vpn_ip:
+                    ips[vpn_iface] = vpn_ip
     except Exception:
         pass
 

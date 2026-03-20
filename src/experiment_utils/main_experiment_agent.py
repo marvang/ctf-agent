@@ -153,7 +153,7 @@ def run_experiment_agent(
         return _error_result("Failed to connect to Docker container", "docker_connection_error")
 
     agent_ips = get_container_ips(container, use_vpn=uses_vpn(environment_mode))
-    print(f"\n🔍 Agent IP: {', '.join(agent_ips)}")
+    print(f"\n🔍 Agent IP: {', '.join(f'{iface}: {ip}' for iface, ip in agent_ips.items())}")
 
     session = create_session(model=model_name, chap_enabled=chap_enabled)
 
