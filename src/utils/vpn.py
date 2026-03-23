@@ -119,7 +119,7 @@ def connect_vpn(container, environment: str = "private", connect_script: str | N
 
 def disconnect_vpn(container, environment: str = "private", connect_script: str | None = None) -> bool:
     env = ENVIRONMENTS[environment]
-    if connect_script:
+    if connect_script and env["disconnect_cmd"].endswith("--disconnect"):
         disconnect_cmd = f"./{connect_script} --disconnect"
     else:
         disconnect_cmd = env["disconnect_cmd"]

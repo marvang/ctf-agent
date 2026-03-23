@@ -89,6 +89,11 @@ def flag_match(found_flag: str, ground_truth_flags: list[str] | str) -> bool:
     return False
 
 
+def all_flags_match(found_flag: str, required_flags: list[str]) -> bool:
+    """Return True only when every required flag appears in the captured output."""
+    return all(flag_match(found_flag, required_flag) for required_flag in required_flags)
+
+
 if __name__ == "__main__":
     challenge = "vm0"
     found_flag = "flagi7uvAQZbDLuXkEfd"

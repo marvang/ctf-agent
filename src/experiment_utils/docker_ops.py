@@ -3,6 +3,7 @@
 import json
 import re
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Final
@@ -323,7 +324,11 @@ def start_kali_container_standalone(
         extra_volumes: list[str] = []
         shared_vpn_dir = Path(SHARED_VPN_DIR)
         if shared_vpn_dir.exists():
-            extra_volumes.append(f"{shared_vpn_dir.resolve()}:{CONTAINER_WORKSPACE_DIR}/vpn")
+            session_vpn_dir = Path(workspace_dir) / "vpn"
+            if session_vpn_dir.exists():
+                shutil.rmtree(session_vpn_dir)
+            shutil.copytree(shared_vpn_dir, session_vpn_dir)
+            extra_volumes.append(f"{session_vpn_dir.resolve()}:{CONTAINER_WORKSPACE_DIR}/vpn")
         _run_container_from_service(
             service_name=KALI_CONTAINER_NAME,
             compose_file=compose_file,

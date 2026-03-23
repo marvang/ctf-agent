@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from src.experiment_utils.validate_flag import flag_match, get_expected_flag
+from src.experiment_utils.validate_flag import all_flags_match, flag_match, get_expected_flag
 
 
 class FlagMatchTests(unittest.TestCase):
@@ -36,6 +36,12 @@ class FlagMatchTests(unittest.TestCase):
     def test_ground_truth_substring_of_found(self) -> None:
         """Agent wraps the flag — ground truth is a substring of found."""
         self.assertTrue(flag_match("Found the flag: abc123def in /root/flag.txt", ["abc123def"]))
+
+    def test_all_flags_match_requires_every_expected_flag(self) -> None:
+        self.assertTrue(all_flags_match("FLAG{first}\nFLAG{second}", ["FLAG{first}", "FLAG{second}"]))
+
+    def test_all_flags_match_rejects_partial_capture(self) -> None:
+        self.assertFalse(all_flags_match("FLAG{first}", ["FLAG{first}", "FLAG{second}"]))
 
 
 class GetExpectedFlagTests(unittest.TestCase):

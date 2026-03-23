@@ -91,6 +91,7 @@ def send_experiment_complete_message(channel_id, results: list[dict[str, Any]], 
             - total_challenges: Int
             - successful: Int
             - failed: Int
+            - unvalidated: Int (optional)
             - total_cost: Float
             - total_time: Float
             - valid_flags: Int
@@ -120,6 +121,7 @@ def send_experiment_complete_message(channel_id, results: list[dict[str, Any]], 
     total = metadata.get("total_challenges", 0)
     successful = metadata.get("successful", 0)
     failed = metadata.get("failed", 0)
+    unvalidated = metadata.get("unvalidated", 0)
     total_cost = metadata.get("total_cost", 0.0)
     total_time = metadata.get("total_time", 0.0)
     valid_flags = metadata.get("valid_flags", 0)
@@ -129,7 +131,7 @@ def send_experiment_complete_message(channel_id, results: list[dict[str, Any]], 
     if successful == total:
         color = discord.Color.green()
         status_emoji = "✅"
-    elif successful > 0:
+    elif successful > 0 or unvalidated > 0:
         color = discord.Color.orange()
         status_emoji = "⚠️"
     else:
@@ -148,22 +150,26 @@ def send_experiment_complete_message(channel_id, results: list[dict[str, Any]], 
         description += f" ({termination_reason})"
 
     # Create embed
+    fields = [
+        {
+            "name": "Success Rate",
+            "value": f"{successful}/{total} ({(successful / total * 100) if total > 0 else 0:.1f}%)",
+            "inline": True,
+        },
+        {"name": "Valid Flags", "value": f"🏁 {valid_flags}/{total}", "inline": True},
+        {"name": "Total Cost", "value": f"💰 ${total_cost:.2f}", "inline": True},
+        {"name": "Total Time", "value": f"⏱️ {time_str}", "inline": True},
+        {"name": "Successful", "value": f"✅ {successful}", "inline": True},
+        {"name": "Failed", "value": f"❌ {failed}", "inline": True},
+    ]
+    if unvalidated:
+        fields.append({"name": "Unvalidated", "value": f"📌 {unvalidated}", "inline": True})
+
     embed = _create_embed(
         title="🏁 Experiment Complete",
         description=description,
         color=color,
-        fields=[
-            {
-                "name": "Success Rate",
-                "value": f"{successful}/{total} ({(successful / total * 100) if total > 0 else 0:.1f}%)",
-                "inline": True,
-            },
-            {"name": "Valid Flags", "value": f"🏁 {valid_flags}/{total}", "inline": True},
-            {"name": "Total Cost", "value": f"💰 ${total_cost:.2f}", "inline": True},
-            {"name": "Total Time", "value": f"⏱️ {time_str}", "inline": True},
-            {"name": "Successful", "value": f"✅ {successful}", "inline": True},
-            {"name": "Failed", "value": f"❌ {failed}", "inline": True},
-        ],
+        fields=fields,
     )
 
     return _safe_send(channel_id, embed=embed)

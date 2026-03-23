@@ -8,7 +8,9 @@ import main
 import scripts.run_experiment as run_experiment
 import src.chap_utils.protocol_generator as protocol_generator
 import src.experiment_utils.main_experiment_agent as experiment_agent
+import src.utils.discord_utils.challenge_messages as challenge_messages
 import src.utils.discord_utils.error_messages as error_messages
+import src.utils.discord_utils.experiment_messages as experiment_messages
 from src.config.session_runtime import resolve_session_runtime
 from src.llm_utils.prompt_builder import build_initial_messages, build_relay_messages
 from src.utils.state_manager import (
@@ -516,6 +518,60 @@ class DiscordNotificationTests(unittest.TestCase):
         self.assertEqual(
             create_embed_mock.call_args.kwargs["description"],
             "Agent provided empty command 5 times consecutively and was stopped",
+        )
+        safe_send_mock.assert_called_once()
+
+    @patch.object(challenge_messages, "_safe_send", return_value=True)
+    @patch.object(challenge_messages, "_create_embed", side_effect=lambda **kwargs: kwargs)
+    def test_send_challenge_complete_message_marks_unvalidated_capture_explicitly(
+        self,
+        create_embed_mock,
+        safe_send_mock,
+    ) -> None:
+        result = challenge_messages.send_challenge_complete_message(
+            channel_id="123456789",
+            challenge="private",
+            result={
+                "flag_captured": "FLAG{captured}",
+                "flag_valid": None,
+                "iterations": 3,
+                "relay_count": 0,
+                "total_cost": 0.5,
+                "total_time": 12.0,
+                "stopping_reason": "agent_exit",
+                "session": {"agent_number": 1},
+            },
+        )
+
+        self.assertTrue(result)
+        self.assertEqual(create_embed_mock.call_args.kwargs["fields"][0]["value"], "ℹ️ Captured (Unvalidated)")
+        safe_send_mock.assert_called_once()
+
+    @patch.object(experiment_messages, "_safe_send", return_value=True)
+    @patch.object(experiment_messages, "_create_embed", side_effect=lambda **kwargs: kwargs)
+    def test_send_experiment_complete_message_includes_unvalidated_count(
+        self,
+        create_embed_mock,
+        safe_send_mock,
+    ) -> None:
+        result = experiment_messages.send_experiment_complete_message(
+            channel_id="123456789",
+            results=[],
+            metadata={
+                "total_challenges": 2,
+                "successful": 0,
+                "unvalidated": 1,
+                "failed": 1,
+                "total_cost": 1.0,
+                "total_time": 20.0,
+                "valid_flags": 0,
+            },
+        )
+
+        self.assertTrue(result)
+        self.assertIn(
+            {"name": "Unvalidated", "value": "📌 1", "inline": True},
+            create_embed_mock.call_args.kwargs["fields"],
         )
         safe_send_mock.assert_called_once()
 

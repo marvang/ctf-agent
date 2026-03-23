@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import Mock
 
 from src.utils.docker_exec import get_container_ips
-from src.utils.vpn import connect_vpn, select_vpn_connect_script
+from src.utils.vpn import connect_vpn, disconnect_vpn, select_vpn_connect_script
 
 
 class ContainerIpTests(unittest.TestCase):
@@ -34,6 +34,17 @@ class ConnectVpnTests(unittest.TestCase):
         connected = connect_vpn(container, environment="private")
 
         self.assertFalse(connected)
+
+    def test_disconnect_vpn_uses_environment_disconnect_helper_for_htb(self) -> None:
+        container = Mock()
+        container.exec_run.return_value = (0, b"VPN disconnected")
+
+        disconnected = disconnect_vpn(container, environment="htb", connect_script="connect-htb.sh")
+
+        self.assertTrue(disconnected)
+        container.exec_run.assert_called_once_with(
+            ["bash", "-c", "cd /ctf-workspace/vpn/htb && ./disconnect-htb.sh"]
+        )
 
 
 class SelectVpnScriptTests(unittest.TestCase):

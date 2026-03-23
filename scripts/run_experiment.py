@@ -41,7 +41,7 @@ from src.experiment_utils.docker_ops import (
 )
 from src.experiment_utils.key_validator import validate_rsa_key_match
 from src.experiment_utils.main_experiment_agent import run_experiment_agent
-from src.experiment_utils.validate_flag import flag_match, get_expected_flag, load_flags_file
+from src.experiment_utils.validate_flag import all_flags_match, flag_match, get_expected_flag, load_flags_file
 from src.utils.discord_utils import (
     create_experiment_channel,
     send_challenge_complete_message,
@@ -550,6 +550,8 @@ def main():
                 if expected_flags:
                     if challenge == "vm10":
                         flag_valid = validate_rsa_key_match(captured_flag, expected_flags[0])
+                    elif not is_local and len(expected_flags) > 1:
+                        flag_valid = all_flags_match(captured_flag, expected_flags)
                     else:
                         flag_valid = flag_match(found_flag=captured_flag, ground_truth_flags=expected_flags)
                 else:
@@ -659,18 +661,21 @@ def main():
         print("\n" + "=" * 80)
         print("EXPERIMENT SUITE COMPLETE")
         print("=" * 80)
-        valid_flags = sum(1 for r in results if r.get("flag_valid", False))
-        failed_flags = total_challenges - valid_flags
+        valid_flags = sum(1 for r in results if r.get("flag_valid") is True)
+        unvalidated_captures = sum(1 for r in results if r.get("flag_valid") is None and r.get("flag_captured"))
+        failed_flags = total_challenges - valid_flags - unvalidated_captures
         total_cost = sum(r.get("total_cost", 0) for r in results)
         total_time = sum(r.get("total_time", 0) for r in results)
 
         print(f"Total challenges: {total_challenges}")
         print(f"Successful: {valid_flags}")
+        print(f"Unvalidated captures: {unvalidated_captures}")
         print(f"Failed: {failed_flags}")
         print(f"Total cost: ${total_cost:.4f}")
         print(f"Total time: {total_time:.1f}s")
         print("\nFlag validation:")
         print(f"  Valid flags captured: {valid_flags}/{total_challenges}")
+        print(f"  Unvalidated flags captured: {unvalidated_captures}/{total_challenges}")
         print("=" * 80)
 
         send_experiment_complete_message(
@@ -679,6 +684,7 @@ def main():
             metadata={
                 "total_challenges": total_challenges,
                 "successful": valid_flags,
+                "unvalidated": unvalidated_captures,
                 "failed": failed_flags,
                 "total_cost": total_cost,
                 "total_time": total_time,
