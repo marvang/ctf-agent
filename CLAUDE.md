@@ -36,15 +36,18 @@ uv run python -m unittest discover -s tests
 uv run python -m unittest tests.test_prompt_rendering
 uv run python -m unittest tests.test_kali_container
 
-# Linting
+# Linting and type checking
 uv run ruff check .           # lint (must pass before committing)
 uv run ruff check . --fix     # auto-fix lint issues
 uv run ruff format .          # auto-format (optional, not yet enforced)
+uv run mypy .                 # type check (must pass before committing)
 ```
 
-## Linting
+## Linting and Type Checking
 
 Ruff is configured in `ruff.toml`. Enabled rule sets: pycodestyle (E/W), pyflakes (F), isort (I), pyupgrade (UP), bugbear (B), simplify (SIM), and ruff-specific (RUF). Line length is 120. `local_challenges/`, `results/`, and `ctf-workspace/` are excluded. Run `uv run ruff check .` and ensure it passes before committing. See `ruff.toml` for the full ignore list and rationale.
+
+Mypy is configured in `pyproject.toml` with `strict = true`. All functions have type hints. Run `uv run mypy .` and ensure it passes before committing. Both ruff and mypy run as pre-commit hooks.
 
 ## Manual Validation Before Push
 
