@@ -56,6 +56,18 @@ Treat `uv.lock` as generated state, not hand-merged source.
 - After regenerating the lockfile, run `uv sync` and the relevant test/lint commands before committing.
 - If your branch picked up an incidental `uv.lock` diff, drop it with `git restore uv.lock` before committing.
 
+## Refactoring and Code Review Principles
+
+When reviewing code for cleanup or refactoring:
+
+- **Rate every finding by risk** (zero/low/medium/high) before implementing. Only batch changes of the same risk level.
+- **Verify findings against actual code** before acting — initial analysis produces false positives. Read the code to confirm.
+- **Walk back honestly** when closer inspection shows a change isn't worth it. Don't implement something just because it was proposed.
+- **Redundant guards that prevent unnecessary work have a purpose.** Early-return checks that duplicate a downstream check may exist to skip expensive computation. Don't remove them.
+- **Defensive patterns may be intentional.** Double validation (e.g., path containment before and after sudo) is defense-in-depth. Investigate before removing.
+- **Duplication across entry points is a known tradeoff.** `main.py` and `main_experiment_agent.py` share similar loop logic by design. Extracting it is high-risk, not a casual cleanup.
+- **Don't optimize what doesn't matter.** Focus on changes that improve maintainability or prevent real bugs, not micro-optimizations.
+
 ## Commit & Pull Request Guidelines
 Recent history uses short imperative subjects without prefixes, for example `update readme` and `Remove legacy references and delete unused code`. Keep commit messages brief, specific, and action-oriented. PRs should explain the runtime or research impact, list the commands you ran, and call out any required Docker, VPN, Discord, or `.env` setup changes. Include screenshots only when updating generated figures or user-facing terminal flows.
 

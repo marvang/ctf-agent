@@ -170,6 +170,18 @@ Treat `uv.lock` as generated output, not as a file to hand-merge.
 - After regenerating, rerun the relevant validation commands before committing.
 - If a branch picked up an incidental lockfile diff, remove it with `git restore uv.lock`.
 
+## Refactoring and Code Review Principles
+
+When reviewing code for cleanup or refactoring, apply these filters before making changes:
+
+- **Rate every finding by risk before implementing.** Classify as zero-risk (mechanical, behavior-preserving), low-risk (minor logic reorganization), medium-risk (changes function signatures or persistence behavior), or high-risk (touches hot paths or multiple entry points). Only batch changes of the same risk level together.
+- **Verify findings against actual code before committing to them.** Initial analysis (especially from automated review) produces false positives. Read the code to confirm the issue is real before proposing a fix.
+- **Walk back recommendations honestly.** If closer inspection shows a proposed change isn't beneficial, say so and explain why — don't implement it just because it was proposed.
+- **Redundant guards that prevent unnecessary work have a purpose.** An early `if not x: return` that duplicates a later check may exist to skip expensive field-building, string formatting, or embed construction. Don't remove it just because the downstream function also checks.
+- **Defensive patterns may be intentional.** Double validation (e.g., path containment checks before and after sudo escalation) may be defense-in-depth. Investigate before removing.
+- **Duplication across entry points is a known tradeoff.** `main.py` and `main_experiment_agent.py` share ~300 lines of similar loop logic. This is documented and intentional — extracting a shared agent loop is high-risk and requires end-to-end validation, not a casual cleanup.
+- **Don't optimize what doesn't matter.** Moving two lines inside an `if` to avoid one string allocation is not worth a commit. Focus on changes that improve maintainability or prevent real bugs.
+
 ## Key Design Decisions
 
 - **OpenRouter only**: All LLM calls go through OpenRouter API (`urllib` directly, no SDK). Model is configurable via `MODEL_NAME`. JSON structured output is enforced via `response_format` schema.
