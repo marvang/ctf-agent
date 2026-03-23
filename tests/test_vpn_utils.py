@@ -42,9 +42,7 @@ class ConnectVpnTests(unittest.TestCase):
         disconnected = disconnect_vpn(container, environment="htb", connect_script="connect-htb.sh")
 
         self.assertTrue(disconnected)
-        container.exec_run.assert_called_once_with(
-            ["bash", "-c", "cd /ctf-workspace/vpn/htb && ./disconnect-htb.sh"]
-        )
+        container.exec_run.assert_called_once_with(["bash", "-c", "cd /ctf-workspace/vpn/htb && ./disconnect-htb.sh"])
 
 
 class SelectVpnScriptTests(unittest.TestCase):

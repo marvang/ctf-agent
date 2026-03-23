@@ -11,7 +11,7 @@ from .core import _create_embed, _safe_send
 
 
 def send_challenge_start_message(
-    channel_id, challenge: str, index: int, total: int, target_ip: str | None = None
+    channel_id: str | None, challenge: str, index: int, total: int, target_ip: str | None = None
 ) -> bool:
     """
     Send challenge start notification.
@@ -47,7 +47,7 @@ def send_challenge_start_message(
     return _safe_send(channel_id, content=content)
 
 
-def send_challenge_complete_message(channel_id, challenge: str, result: dict[str, Any]) -> bool:
+def send_challenge_complete_message(channel_id: str | None, challenge: str, result: dict[str, Any]) -> bool:
     """
     Send challenge completion notification with metrics.
 
@@ -172,7 +172,9 @@ def send_challenge_complete_message(channel_id, challenge: str, result: dict[str
     return _safe_send(channel_id, embed=embed)
 
 
-def send_challenge_error_message(channel_id, challenge: str, error_msg: str, experiment_id: str | None = None) -> bool:
+def send_challenge_error_message(
+    channel_id: str | None, challenge: str, error_msg: str, experiment_id: str | None = None
+) -> bool:
     """
     Send challenge error notification.
 

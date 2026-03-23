@@ -2,8 +2,10 @@
 JSON schema definitions for structured model responses
 """
 
+from typing import Any
 
-def get_ctf_response_schema() -> dict:
+
+def get_ctf_response_schema() -> dict[str, Any]:
     """JSON schema enforcing {reasoning, shell_command} responses."""
     return {
         "type": "json_schema",
@@ -29,7 +31,7 @@ def get_ctf_response_schema() -> dict:
     }
 
 
-def get_protocol_response_schema() -> dict:
+def get_protocol_response_schema() -> dict[str, Any]:
     """JSON schema enforcing {reasoning, protocol} responses."""
     return {
         "type": "json_schema",

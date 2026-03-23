@@ -186,6 +186,11 @@ def rebuild_protocol_request_messages(
     ):
         raise ValueError("Protocol request event is missing required reconstruction indices")
 
+    assert isinstance(system_event_index, int)
+    assert isinstance(history_agent_number, int)
+    assert isinstance(history_end_event_index, int)
+    assert isinstance(prior_protocol_count, int)
+
     events = session.get("events", [])
     if not isinstance(events, list):
         raise ValueError("Session does not contain a replay event list")

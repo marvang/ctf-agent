@@ -4,10 +4,15 @@ import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import src.experiment_utils.main_experiment_agent as experiment_agent
 import src.utils.workspace as workspace
+
+WORKSPACE_OS: Any = workspace.os  # type: ignore[attr-defined]
+WORKSPACE_SHUTIL: Any = workspace.shutil  # type: ignore[attr-defined]
+WORKSPACE_SUBPROCESS: Any = workspace.subprocess  # type: ignore[attr-defined]
 
 
 class WorkspaceCleanupTests(unittest.TestCase):
@@ -15,7 +20,7 @@ class WorkspaceCleanupTests(unittest.TestCase):
         workspace._sudo_verified = False
 
     def test_cleanup_workspace_skips_sudo_when_nothing_needs_cleanup(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir, patch.object(workspace.subprocess, "run") as run_mock:
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(WORKSPACE_SUBPROCESS, "run") as run_mock:
             result = workspace.cleanup_workspace(
                 temp_dir,
                 approved_patterns=[],
@@ -35,7 +40,7 @@ class WorkspaceCleanupTests(unittest.TestCase):
             with open(flags_path, "w") as handle:
                 handle.write("FLAG")
 
-            with patch.object(workspace.subprocess, "run") as run_mock:
+            with patch.object(WORKSPACE_SUBPROCESS, "run") as run_mock:
                 result = workspace.cleanup_workspace(
                     temp_dir,
                     approved_patterns=[],
@@ -57,7 +62,7 @@ class WorkspaceCleanupTests(unittest.TestCase):
             real_open = open
             write_attempts = 0
 
-            def fake_open(path, mode="r", *args, **kwargs):
+            def fake_open(path: str, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
                 nonlocal write_attempts
                 if path == flags_path and mode == "w" and write_attempts == 0:
                     write_attempts += 1
@@ -66,7 +71,7 @@ class WorkspaceCleanupTests(unittest.TestCase):
 
             with (
                 patch("builtins.open", side_effect=fake_open),
-                patch.object(workspace.subprocess, "run") as run_mock,
+                patch.object(WORKSPACE_SUBPROCESS, "run") as run_mock,
             ):
                 result = workspace.cleanup_workspace(
                     temp_dir,
@@ -87,16 +92,22 @@ class WorkspaceCleanupTests(unittest.TestCase):
             with open(junk_path, "w") as handle:
                 handle.write("junk")
 
-            def fake_run(command, capture_output=False, text=False):
+            def fake_run(
+                command: list[str],
+                capture_output: bool = False,
+                text: bool = False,
+            ) -> subprocess.CompletedProcess[str]:
                 if command == ["sudo", "-n", "true"]:
                     return subprocess.CompletedProcess(command, 0, "", "")
                 if command == ["sudo", "-n", "rm", "-rf", "--", resolved_junk_path]:
                     return subprocess.CompletedProcess(command, 0, "", "")
                 raise AssertionError(f"Unexpected command: {command}")
 
-            with patch.object(workspace.shutil, "rmtree", side_effect=PermissionError("root-owned")), patch.object(
-                workspace.os, "remove", side_effect=PermissionError("root-owned")
-            ), patch.object(workspace.subprocess, "run", side_effect=fake_run) as run_mock:
+            with (
+                patch.object(WORKSPACE_SHUTIL, "rmtree", side_effect=PermissionError("root-owned")),
+                patch.object(WORKSPACE_OS, "remove", side_effect=PermissionError("root-owned")),
+                patch.object(WORKSPACE_SUBPROCESS, "run", side_effect=fake_run) as run_mock,
+            ):
                 result = workspace.cleanup_workspace(
                     temp_dir,
                     approved_patterns=[],
@@ -115,18 +126,22 @@ class WorkspaceCleanupTests(unittest.TestCase):
                 handle.write("junk")
 
             stdout = io.StringIO()
-            with patch.object(workspace.shutil, "rmtree", side_effect=PermissionError("root-owned")), patch.object(
-                workspace.os, "remove", side_effect=PermissionError("root-owned")
-            ), patch.object(workspace, "_has_interactive_tty", return_value=False), patch.object(
-                workspace.subprocess,
-                "run",
-                return_value=subprocess.CompletedProcess(
-                    ["sudo", "-n", "true"],
-                    1,
-                    "",
-                    "sudo: a password is required",
+            with (
+                patch.object(WORKSPACE_SHUTIL, "rmtree", side_effect=PermissionError("root-owned")),
+                patch.object(WORKSPACE_OS, "remove", side_effect=PermissionError("root-owned")),
+                patch.object(workspace, "_has_interactive_tty", return_value=False),
+                patch.object(
+                    WORKSPACE_SUBPROCESS,
+                    "run",
+                    return_value=subprocess.CompletedProcess(
+                        ["sudo", "-n", "true"],
+                        1,
+                        "",
+                        "sudo: a password is required",
+                    ),
                 ),
-            ), redirect_stdout(stdout):
+                redirect_stdout(stdout),
+            ):
                 result = workspace.cleanup_workspace(
                     temp_dir,
                     approved_patterns=[],
@@ -162,10 +177,10 @@ class ExperimentWorkspaceCleanupTests(unittest.TestCase):
     @patch.object(experiment_agent, "load_dotenv")
     def test_run_experiment_aborts_before_docker_when_workspace_cleanup_fails(
         self,
-        _load_dotenv_mock,
-        _load_patterns_mock,
-        _cleanup_mock,
-        connect_to_docker_mock,
+        _load_dotenv_mock: MagicMock,
+        _load_patterns_mock: MagicMock,
+        _cleanup_mock: MagicMock,
+        connect_to_docker_mock: MagicMock,
     ) -> None:
         result = experiment_agent.run_experiment_agent(
             experiment_id="exp-1",

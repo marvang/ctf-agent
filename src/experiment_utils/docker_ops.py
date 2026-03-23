@@ -18,6 +18,7 @@ from src.config.constants import (
     get_local_challenge_container_name,
 )
 from src.config.workspace import CONTAINER_WORKSPACE_DIR, SHARED_VPN_DIR, ensure_workspace_dir
+from src.utils.workspace import _delete_workspace_item
 
 _PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _NETWORK_NAME: Final[str] = LOCAL_CHALLENGES_NETWORK_NAME
@@ -325,8 +326,8 @@ def start_kali_container_standalone(
         shared_vpn_dir = Path(SHARED_VPN_DIR)
         if shared_vpn_dir.exists():
             session_vpn_dir = Path(workspace_dir) / "vpn"
-            if session_vpn_dir.exists():
-                shutil.rmtree(session_vpn_dir)
+            if session_vpn_dir.exists() and not _delete_workspace_item(str(session_vpn_dir), workspace_dir):
+                raise ValueError(f"Failed to reset session VPN workspace at {session_vpn_dir}")
             shutil.copytree(shared_vpn_dir, session_vpn_dir)
             extra_volumes.append(f"{session_vpn_dir.resolve()}:{CONTAINER_WORKSPACE_DIR}/vpn")
         _run_container_from_service(
@@ -401,9 +402,9 @@ def _inspect_network_subnet(network_name: str) -> str | None:
         return None
 
     for subnet in parsed_subnets:
-        if ":" not in subnet:
+        if isinstance(subnet, str) and ":" not in subnet:
             return subnet
-    return parsed_subnets[0]
+    return str(parsed_subnets[0])
 
 
 def start_network(

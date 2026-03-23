@@ -7,6 +7,7 @@ from typing import Any
 
 import docker
 import docker.errors
+from docker.models.containers import Container
 
 from src.utils.network_utils import find_vpn_interface, get_interface_ipv4
 
@@ -39,7 +40,7 @@ def _decode_demux_output(output: Any) -> tuple[str, str]:
     return _decode_exec_stream(output), ""
 
 
-def execute_command(container, shell_command: str, timeout_seconds: int) -> CommandExecutionResult:
+def execute_command(container: Container, shell_command: str, timeout_seconds: int) -> CommandExecutionResult:
     """
     Execute shell command in Docker container
 
@@ -53,7 +54,7 @@ def execute_command(container, shell_command: str, timeout_seconds: int) -> Comm
     """
     result: dict[str, Any] = {"exit_code": None, "stdout": "", "stderr": "", "error": None}
 
-    def run_command():
+    def run_command() -> None:
         try:
             exit_code, output = container.exec_run(
                 ["bash", "-lc", shell_command],
@@ -104,7 +105,7 @@ def execute_command(container, shell_command: str, timeout_seconds: int) -> Comm
     )
 
 
-def cleanup_tmux_session(container) -> None:
+def cleanup_tmux_session(container: Container) -> None:
     """Kill all tmux sessions in the container."""
     try:
         exit_code, _output = container.exec_run(["bash", "-lc", "tmux list-sessions 2>/dev/null"], tty=False)
@@ -116,7 +117,7 @@ def cleanup_tmux_session(container) -> None:
         pass
 
 
-def get_container_ips(container, use_vpn: bool) -> dict:
+def get_container_ips(container: Container, use_vpn: bool) -> dict[str, str]:
     """Return dict with eth0 (and VPN interface if present) IPs from the container."""
     ips: dict[str, str] = {}
 

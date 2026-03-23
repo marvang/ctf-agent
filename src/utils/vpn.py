@@ -4,6 +4,8 @@ import os
 import re
 import shlex
 
+from docker.models.containers import Container
+
 
 def _filter_vpn_output(text: str) -> str:
     """Remove noisy/unhelpful lines from VPN connect script output."""
@@ -58,7 +60,7 @@ def get_vpn_setup_hint(environment: str) -> str:
     return f"📝 VPN setup required: place your .ovpn file in {workdir} and try again."
 
 
-def discover_vpn_scripts(container, environment: str) -> list[str]:
+def discover_vpn_scripts(container: Container, environment: str) -> list[str]:
     """List .sh files in the VPN workdir inside the container."""
     workdir = ENVIRONMENTS[environment]["workdir"]
     exit_code, output = container.exec_run(["bash", "-c", f"ls {shlex.quote(workdir)}/*.sh 2>/dev/null"])
@@ -93,7 +95,7 @@ def select_vpn_connect_script(discovered_scripts: list[str], requested_script: s
     )
 
 
-def connect_vpn(container, environment: str = "private", connect_script: str | None = None) -> bool:
+def connect_vpn(container: Container, environment: str = "private", connect_script: str | None = None) -> bool:
     env = ENVIRONMENTS[environment]
     connect_cmd = f"./{connect_script}" if connect_script else env["connect_cmd"]
 
@@ -117,7 +119,7 @@ def connect_vpn(container, environment: str = "private", connect_script: str | N
         return False
 
 
-def disconnect_vpn(container, environment: str = "private", connect_script: str | None = None) -> bool:
+def disconnect_vpn(container: Container, environment: str = "private", connect_script: str | None = None) -> bool:
     env = ENVIRONMENTS[environment]
     if connect_script and env["disconnect_cmd"].endswith("--disconnect"):
         disconnect_cmd = f"./{connect_script} --disconnect"
@@ -131,7 +133,7 @@ def disconnect_vpn(container, environment: str = "private", connect_script: str 
             print("✅ VPN disconnected")
         else:
             print(f"⚠️  VPN disconnect failed (exit code {exit_code})")
-        return exit_code == 0
+        return bool(exit_code == 0)
     except Exception as e:
         print(f"❌ VPN disconnect error: {e}")
         return False

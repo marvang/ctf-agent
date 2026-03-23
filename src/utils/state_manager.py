@@ -153,11 +153,11 @@ def get_current_agent_tokens(session: dict[str, Any]) -> int:
     current_total = session["metrics"]["total_tokens"]
 
     if not session.get("relay_protocols"):
-        return current_total
+        return int(current_total)
 
     last_protocol = session["relay_protocols"][-1]
     tokens_at_last_relay = last_protocol["metrics"]["snapshot_total_tokens"]
-    return current_total - tokens_at_last_relay
+    return int(current_total - tokens_at_last_relay)
 
 
 def persist_session(session: dict[str, Any], session_path: str | Path) -> None:

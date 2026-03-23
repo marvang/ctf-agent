@@ -2,6 +2,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from src.utils.git import get_git_diff_fingerprint
 
 
 @contextmanager
-def _temporary_cwd(path: str):
+def _temporary_cwd(path: str) -> Generator[None, None, None]:
     original_cwd = os.getcwd()
     os.chdir(path)
     try:

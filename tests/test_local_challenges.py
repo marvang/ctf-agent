@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from textwrap import dedent
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import src.config.session_runtime as session_runtime
 import src.config.workspace as workspace_config
@@ -20,6 +21,8 @@ from src.config.constants import (
     normalize_session_id,
 )
 from src.utils.user_interface import discover_local_ctf_challenges
+
+DOCKER_OPS_SUBPROCESS: Any = docker_ops.subprocess  # type: ignore[attr-defined]
 
 
 class LocalChallengesTests(unittest.TestCase):
@@ -65,10 +68,10 @@ class LocalChallengesTests(unittest.TestCase):
 
 
 class LocalChallengeDockerLifecycleTests(unittest.TestCase):
-    @patch.object(docker_ops.subprocess, "run")
+    @patch.object(DOCKER_OPS_SUBPROCESS, "run")
     def test_start_container_force_recreates_fresh_service_container(
         self,
-        run_mock,
+        run_mock: MagicMock,
     ) -> None:
         run_mock.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         compose_content = dedent(
@@ -106,10 +109,10 @@ class LocalChallengeDockerLifecycleTests(unittest.TestCase):
             check=True,
         )
 
-    @patch.object(docker_ops.subprocess, "run")
+    @patch.object(DOCKER_OPS_SUBPROCESS, "run")
     def test_stop_container_removes_service_container(
         self,
-        run_mock,
+        run_mock: MagicMock,
     ) -> None:
         run_mock.return_value = subprocess.CompletedProcess(args=[], returncode=0)
 
@@ -130,10 +133,10 @@ class LocalChallengeDockerLifecycleTests(unittest.TestCase):
             check=True,
         )
 
-    @patch.object(docker_ops.subprocess, "run")
+    @patch.object(DOCKER_OPS_SUBPROCESS, "run")
     def test_start_challenge_container_standalone_uses_compose_runtime_settings_without_host_ports(
         self,
-        run_mock,
+        run_mock: MagicMock,
     ) -> None:
         run_mock.side_effect = [
             subprocess.CompletedProcess(args=[], returncode=0),
@@ -199,8 +202,8 @@ class SessionRuntimeTests(unittest.TestCase):
 
 
 class NetworkLifecycleTests(unittest.TestCase):
-    @patch.object(docker_ops.subprocess, "run")
-    def test_inspect_network_subnet_prefers_ipv4_from_multiple_ipam_configs(self, run_mock) -> None:
+    @patch.object(DOCKER_OPS_SUBPROCESS, "run")
+    def test_inspect_network_subnet_prefers_ipv4_from_multiple_ipam_configs(self, run_mock: MagicMock) -> None:
         run_mock.return_value = subprocess.CompletedProcess(
             args=[],
             returncode=0,
@@ -212,8 +215,8 @@ class NetworkLifecycleTests(unittest.TestCase):
 
         self.assertEqual(subnet, "10.210.0.0/24")
 
-    @patch.object(docker_ops.subprocess, "run")
-    def test_start_network_uses_fallback_subnet_on_overlap(self, run_mock) -> None:
+    @patch.object(DOCKER_OPS_SUBPROCESS, "run")
+    def test_start_network_uses_fallback_subnet_on_overlap(self, run_mock: MagicMock) -> None:
         run_mock.side_effect = [
             subprocess.CompletedProcess(args=[], returncode=1),
             subprocess.CalledProcessError(
@@ -232,8 +235,8 @@ class NetworkLifecycleTests(unittest.TestCase):
 
         self.assertEqual(subnet, "10.211.0.0/24")
 
-    @patch.object(docker_ops.subprocess, "run")
-    def test_stop_network_leaves_active_endpoints_attached(self, run_mock) -> None:
+    @patch.object(DOCKER_OPS_SUBPROCESS, "run")
+    def test_stop_network_leaves_active_endpoints_attached(self, run_mock: MagicMock) -> None:
         run_mock.side_effect = [
             subprocess.CompletedProcess(args=[], returncode=0),
             subprocess.CompletedProcess(

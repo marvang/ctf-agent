@@ -1,5 +1,7 @@
 """Prompt building utilities for LLM initialization."""
 
+from typing import Any
+
 from src.llm_utils import prompts
 from src.utils.environment import EnvironmentType, LocalArch
 
@@ -9,7 +11,7 @@ def build_initial_messages(
     target_info: str,
     use_chap: bool,
     custom_instructions: str = "",
-    agent_ips: dict | None = None,
+    agent_ips: dict[str, str] | None = None,
     local_arch: LocalArch | None = None,
 ) -> list[dict[str, str]]:
     """
@@ -45,11 +47,11 @@ def build_initial_messages(
 
 
 def build_relay_messages(
-    session: dict,
+    session: dict[str, Any],
     environment_mode: EnvironmentType,
     target_info: str,
     custom_instructions: str = "",
-    agent_ips: dict | None = None,
+    agent_ips: dict[str, str] | None = None,
     local_arch: LocalArch | None = None,
 ) -> list[dict[str, str]]:
     """

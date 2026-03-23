@@ -3,6 +3,8 @@
 import re
 from typing import Final
 
+from docker.models.containers import Container
+
 _IPV4_ADDR_RE: Final[re.Pattern[str]] = re.compile(r"\binet\s+(\d+\.\d+\.\d+\.\d+)/\d+\b")
 
 
@@ -13,7 +15,7 @@ def _decode_output(output: bytes | str) -> str:
     return str(output).strip()
 
 
-def find_vpn_interface(container) -> str | None:
+def find_vpn_interface(container: Container) -> str | None:
     """Return the name of the first tun/tap VPN interface, or None."""
     try:
         exit_code, output = container.exec_run(["ip", "-o", "link", "show", "type", "tun"])
@@ -27,7 +29,7 @@ def find_vpn_interface(container) -> str | None:
     return match.group(1) if match else None
 
 
-def get_interface_ipv4(container, interface: str) -> str | None:
+def get_interface_ipv4(container: Container, interface: str) -> str | None:
     """Return the IPv4 assigned to an interface, if present."""
     try:
         exit_code, output = container.exec_run(["ip", "-4", "-o", "addr", "show", "dev", interface])
