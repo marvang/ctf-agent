@@ -532,6 +532,11 @@ def main() -> None:
 
     set_save_callback(save_on_interrupt)
 
+    # NOTE: This loop shares ~200 lines with main_experiment_agent.py (10 deliberate divergence
+    # points for interactive vs automated behavior). Extracting a shared loop was evaluated
+    # (March 2026) and rejected: requires 8 callbacks or inheritance, readability drops, and
+    # the experiment path gets harder to debug. Syncing both files is straightforward with
+    # AI-assisted development. See main_experiment_agent.py for the full rationale.
     try:
         while True:
             print(f"\n{'=' * 40}")

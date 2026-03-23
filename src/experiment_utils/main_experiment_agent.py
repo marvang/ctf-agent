@@ -59,6 +59,14 @@ def _error_result(error: str, stopping_reason: str) -> dict[str, Any]:
     }
 
 
+# NOTE: This function's 28 parameters were evaluated for dataclass grouping (March 2026).
+# Rejected: one caller, two tests inspect the signature, and the function body still unpacks
+# every value individually — dataclasses would move verbosity, not reduce it.
+# The agent loop below shares ~200 lines with main.py's loop (10 deliberate divergence points
+# for interactive vs automated behavior). Extracting a shared loop was evaluated and rejected:
+# it would require 8 callbacks or an inheritance hierarchy, net code grows, readability drops,
+# and the research-critical experiment path gets harder to debug. Syncing both files manually
+# is straightforward with AI-assisted development.
 def run_experiment_agent(
     experiment_id: str,  # info purposes
     experiment_loop_iteration: int,  # info purposes
