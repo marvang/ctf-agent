@@ -9,6 +9,8 @@ wheels/
 .uv/
 .venv
 .ruff_cache
+.mypy_cache/
+.pytest_cache/
 ctf-workspace/**
 ctf-workspaces/
 !ctf-workspace/vpn/
@@ -25,4 +27,3 @@ context_for_execution_model_change.txt
 !.claude/settings.json
 .claude/settings.local.json
 .claude/worktrees/
-uv.lock

@@ -15,6 +15,7 @@ import os
 import sys
 import time
 from datetime import datetime
+from typing import Any
 
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -41,7 +42,13 @@ from src.experiment_utils.docker_ops import (
 )
 from src.experiment_utils.key_validator import validate_rsa_key_match
 from src.experiment_utils.main_experiment_agent import run_experiment_agent
-from src.experiment_utils.validate_flag import all_flags_match, flag_match, get_expected_flag, load_flags_file
+from src.experiment_utils.validate_flag import (
+    FlagEntry,
+    all_flags_match,
+    flag_match,
+    get_expected_flag,
+    load_flags_file,
+)
 from src.utils.discord_utils import (
     create_experiment_channel,
     send_challenge_complete_message,
@@ -64,7 +71,9 @@ from src.utils.vpn import connect_vpn, disconnect_vpn, discover_vpn_scripts, sel
 
 # --- Shared settings ---
 
-TEST_RUN = True  # Set to True only for test runs. For local: gives agent solutions. Blocked for VPN (no test hints exist).
+TEST_RUN = (
+    True  # Set to True only for test runs. For local: gives agent solutions. Blocked for VPN (no test hints exist).
+)
 USE_CUSTOM_INSTRUCTIONS = True  # Enable/disable per-challenge custom instructions. Recommended to keep True.
 CHALLENGE_CUSTOM_INSTRUCTIONS = TEST_CHALLENGE_CUSTOM_INSTRUCTIONS if TEST_RUN else REAL_CHALLENGE_CUSTOM_INSTRUCTIONS
 
@@ -106,7 +115,7 @@ CTF_CHALLENGES = [
 ]
 LOCAL_FLAG_DIR = LOCAL_CHALLENGES_ROOT_STR  # Directory containing per-challenge flag.txt files
 LOCAL_ARCH: LocalArch = "aarch64"  # Architecture-specific prompt selection for local challenge runs
-SERVICE_STARTUP_DELAY = 30 # Only for local mode.
+SERVICE_STARTUP_DELAY = 30  # Only for local mode.
 
 # --- VPN/Remote mode ---
 
@@ -115,7 +124,7 @@ VPN_FLAGS_FILE: str | None = "flags_example.json"  # Path to flags JSON file for
 VPN_CONNECT_SCRIPT: str | None = None
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command line arguments to override defaults."""
     parser = argparse.ArgumentParser(description="Run CTF experiments")
 
@@ -174,7 +183,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def apply_cli_overrides(args):
+def apply_cli_overrides(args: argparse.Namespace) -> None:
     """Apply CLI arguments to global config variables."""
     global CHAP_ENABLED, EXPERIMENT_SET_NAME, CHAP_TOKEN_LIMIT_BASE
     global MODEL_NAME, CHAP_TOKEN_LIMIT_INCREMENT, CHAP_AUTO_TRIGGER
@@ -218,7 +227,7 @@ def get_custom_instructions_for_challenge(challenge_name: str) -> str:
 
 
 def save_results(
-    results: list,
+    results: list[dict[str, Any]],
     results_dir: str,
     session_runtime: SessionRuntime,
     challenges: list[str],
@@ -226,7 +235,7 @@ def save_results(
     experiment_timestamp: str | None = None,
     termination_reason: str | None = None,
     vpn_connect_script: str | None = None,
-):
+) -> None:
     """Save experiment results to structured per-challenge files."""
     os.makedirs(results_dir, exist_ok=True)
     timestamp = experiment_timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -304,7 +313,7 @@ def save_results(
     print(f"💾 Results saved to {experiment_dir}")
 
 
-def main():
+def main() -> None:
     """Run experiments on all CTF challenges"""
     # Parse CLI args and apply overrides
     args = parse_args()
@@ -361,9 +370,9 @@ def main():
     # VPN mode: start Kali, connect VPN before the challenge loop
     vpn_container = None
     vpn_connect_script = None
-    flag_entries: list = []
+    flag_entries: list[FlagEntry] = []
     challenges_to_run = CTF_CHALLENGES if is_local else [EXPERIMENT_SET_NAME]
-    results: list = []
+    results: list[dict[str, Any]] = []
     experiment_id = generate_run_id()
     discord_experiment_id = f"{EXPERIMENT_SET_NAME}-{experiment_id}" if EXPERIMENT_SET_NAME else experiment_id
     results_dir = os.path.join(RESULTS_DIR, EXPERIMENT_SET_NAME) if EXPERIMENT_SET_NAME else RESULTS_DIR
@@ -409,8 +418,14 @@ def main():
             print("\n⚠️  No --vpn-flags-file provided — flag validation will be skipped")
 
         save_results(
-            results, results_dir, session_runtime, challenges_to_run,
-            experiment_dir, experiment_id, termination_reason, vpn_connect_script,
+            results,
+            results_dir,
+            session_runtime,
+            challenges_to_run,
+            experiment_dir,
+            experiment_id,
+            termination_reason,
+            vpn_connect_script,
         )
 
         if DISCORD_NOTIFICATIONS_ENABLED:
@@ -434,7 +449,7 @@ def main():
             print(f"\n{'=' * 80}")
             print(f"Challenge {idx}/{total_challenges}: {challenge}")
             print(f"{'=' * 80}")
-            challenge_container_name = session_runtime.challenge_container_name(challenge) if is_local else None
+            challenge_container_name: str = session_runtime.challenge_container_name(challenge) if is_local else ""
             target_ip = ""
 
             send_challenge_start_message(channel_id=channel_id, challenge=challenge, index=idx, total=total_challenges)
@@ -622,16 +637,28 @@ def main():
                     stop_challenge_container_standalone(challenge_container_name)
 
             save_results(
-                results, results_dir, session_runtime, challenges_to_run,
-                experiment_dir, experiment_id, termination_reason, vpn_connect_script,
+                results,
+                results_dir,
+                session_runtime,
+                challenges_to_run,
+                experiment_dir,
+                experiment_id,
+                termination_reason,
+                vpn_connect_script,
             )
 
     except KeyboardInterrupt:
         termination_reason = "interrupted_by_user"
         print("\n⚠️ Experiment interrupted by user. Saving partial results...")
         save_results(
-            results, results_dir, session_runtime, challenges_to_run,
-            experiment_dir, experiment_id, termination_reason, vpn_connect_script,
+            results,
+            results_dir,
+            session_runtime,
+            challenges_to_run,
+            experiment_dir,
+            experiment_id,
+            termination_reason,
+            vpn_connect_script,
         )
 
         send_experiment_interrupted_message(
@@ -645,8 +672,14 @@ def main():
 
         traceback.print_exc()
         save_results(
-            results, results_dir, session_runtime, challenges_to_run,
-            experiment_dir, experiment_id, termination_reason, vpn_connect_script,
+            results,
+            results_dir,
+            session_runtime,
+            challenges_to_run,
+            experiment_dir,
+            experiment_id,
+            termination_reason,
+            vpn_connect_script,
         )
 
         send_experiment_error_message(channel_id=channel_id, error_msg=str(e), partial_results=len(results))
@@ -654,8 +687,14 @@ def main():
     else:
         termination_reason = "completed"
         save_results(
-            results, results_dir, session_runtime, challenges_to_run,
-            experiment_dir, experiment_id, termination_reason, vpn_connect_script,
+            results,
+            results_dir,
+            session_runtime,
+            challenges_to_run,
+            experiment_dir,
+            experiment_id,
+            termination_reason,
+            vpn_connect_script,
         )
 
         print("\n" + "=" * 80)

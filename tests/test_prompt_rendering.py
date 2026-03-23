@@ -2,7 +2,7 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import main
 import scripts.run_experiment as run_experiment
@@ -368,7 +368,7 @@ class ProtocolGenerationTests(unittest.TestCase):
     @patch.object(protocol_generator, "call_openrouter_protocol")
     def test_generate_relay_protocol_keeps_reasoning_and_logs_compact_events(
         self,
-        call_protocol_mock,
+        call_protocol_mock: MagicMock,
     ) -> None:
         call_protocol_mock.return_value = (
             "summarize the foothold",
@@ -505,8 +505,8 @@ class DiscordNotificationTests(unittest.TestCase):
     @patch.object(error_messages, "_create_embed", side_effect=lambda **kwargs: kwargs)
     def test_send_empty_command_stop_message_uses_retry_limit(
         self,
-        create_embed_mock,
-        safe_send_mock,
+        create_embed_mock: MagicMock,
+        safe_send_mock: MagicMock,
     ) -> None:
         result = error_messages.send_empty_command_stop_message(
             channel_id="123456789",
@@ -525,8 +525,8 @@ class DiscordNotificationTests(unittest.TestCase):
     @patch.object(challenge_messages, "_create_embed", side_effect=lambda **kwargs: kwargs)
     def test_send_challenge_complete_message_marks_unvalidated_capture_explicitly(
         self,
-        create_embed_mock,
-        safe_send_mock,
+        create_embed_mock: MagicMock,
+        safe_send_mock: MagicMock,
     ) -> None:
         result = challenge_messages.send_challenge_complete_message(
             channel_id="123456789",
@@ -551,8 +551,8 @@ class DiscordNotificationTests(unittest.TestCase):
     @patch.object(experiment_messages, "_create_embed", side_effect=lambda **kwargs: kwargs)
     def test_send_experiment_complete_message_includes_unvalidated_count(
         self,
-        create_embed_mock,
-        safe_send_mock,
+        create_embed_mock: MagicMock,
+        safe_send_mock: MagicMock,
     ) -> None:
         result = experiment_messages.send_experiment_complete_message(
             channel_id="123456789",

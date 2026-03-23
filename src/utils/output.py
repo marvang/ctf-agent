@@ -45,9 +45,7 @@ def truncate_output(output: str, max_length: int) -> str:
     truncated = output[:head_len]
     if tail_len:
         truncated += separator + output[-tail_len:]
-    warning = (
-        f"[SYSTEM WARNING: Output truncated. Showing first {head_len} and last {tail_len} of {len(output)} characters]\n\n"
-    )
+    warning = f"[SYSTEM WARNING: Output truncated. Showing first {head_len} and last {tail_len} of {len(output)} characters]\n\n"
     return warning + truncated
 
 

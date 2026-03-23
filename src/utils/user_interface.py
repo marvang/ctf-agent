@@ -41,7 +41,7 @@ _RECOMMENDED_MODELS: list[dict[str, str]] = [
 ]
 
 
-def print_banner():
+def print_banner() -> None:
     """Display application banner"""
     print("🤖 CTF-AGENT v1.4")
     print("=" * 40)
@@ -324,7 +324,7 @@ def prompt_custom_instructions() -> str:
     return custom_instructions
 
 
-def print_config_summary(target_info: str):
+def print_config_summary(target_info: str) -> None:
     """
     Display configuration summary
 

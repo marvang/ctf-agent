@@ -9,6 +9,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -52,14 +53,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _load_session(session_path: str) -> dict:
+def _load_session(session_path: str) -> dict[str, Any]:
     """Load a saved session JSON file."""
     with open(session_path, encoding="utf-8") as handle:
-        return json.load(handle)
+        result: dict[str, Any] = json.load(handle)
+        return result
 
 
 def _resolve_event_index(
-    calls: list[dict],
+    calls: list[dict[str, Any]],
     *,
     call_index: int | None,
     event_index: int | None,

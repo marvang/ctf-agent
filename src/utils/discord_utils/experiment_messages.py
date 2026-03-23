@@ -10,7 +10,7 @@ import discord
 from .core import _create_embed, _safe_send
 
 
-def send_experiment_start_message(channel_id, experiment_id: str, config: dict) -> bool:
+def send_experiment_start_message(channel_id: str | None, experiment_id: str, config: dict[str, Any]) -> bool:
     """
     Send experiment start notification.
 
@@ -80,7 +80,9 @@ def send_experiment_start_message(channel_id, experiment_id: str, config: dict) 
     return _safe_send(channel_id, embed=embed)
 
 
-def send_experiment_complete_message(channel_id, results: list[dict[str, Any]], metadata: dict) -> bool:
+def send_experiment_complete_message(
+    channel_id: str | None, results: list[dict[str, Any]], metadata: dict[str, Any]
+) -> bool:
     """
     Send experiment completion summary.
 
@@ -175,7 +177,7 @@ def send_experiment_complete_message(channel_id, results: list[dict[str, Any]], 
     return _safe_send(channel_id, embed=embed)
 
 
-def send_experiment_interrupted_message(channel_id, partial_results: int, total_challenges: int) -> bool:
+def send_experiment_interrupted_message(channel_id: str | None, partial_results: int, total_challenges: int) -> bool:
     """
     Send experiment interruption notification.
 
@@ -202,7 +204,7 @@ def send_experiment_interrupted_message(channel_id, partial_results: int, total_
     return _safe_send(channel_id, embed=embed)
 
 
-def send_experiment_error_message(channel_id, error_msg: str, partial_results: int = 0) -> bool:
+def send_experiment_error_message(channel_id: str | None, error_msg: str, partial_results: int = 0) -> bool:
     """
     Send experiment fatal error notification.
 

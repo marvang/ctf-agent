@@ -10,7 +10,7 @@ import discord
 from .core import _create_embed, _safe_send
 
 
-def send_llm_error_message(channel_id, error_msg: str, context: dict[str, Any]) -> bool:
+def send_llm_error_message(channel_id: str | None, error_msg: str, context: dict[str, Any]) -> bool:
     """
     Send LLM API error alert notification.
 
@@ -73,7 +73,7 @@ def send_llm_error_message(channel_id, error_msg: str, context: dict[str, Any]) 
 
 
 def send_empty_command_stop_message(
-    channel_id,
+    channel_id: str | None,
     context: dict[str, Any],
     retry_limit: int = 5,
 ) -> bool:
@@ -127,7 +127,7 @@ def send_empty_command_stop_message(
     return _safe_send(channel_id, embed=embed)
 
 
-def send_docker_connection_error_message(channel_id, container_name: str, context: dict[str, Any]) -> bool:
+def send_docker_connection_error_message(channel_id: str | None, container_name: str, context: dict[str, Any]) -> bool:
     """
     Send Docker connection error notification.
 

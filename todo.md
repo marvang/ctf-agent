@@ -2,9 +2,6 @@
 
 ## Backlog
 
-### Type hints + mypy (deferred — do last after all feature PRs merge)
-Add type hints to all functions and set up mypy strict mode. PR #3 exists as reference for config and patterns. Re-apply on merged codebase to avoid conflicts.
-
 ### Multi-host target metadata/schema (future)
 Keep the current run metadata as-is for now, but design a richer target-scope representation later so benchmark artifacts can describe multi-host environments, pivots, and allowed ranges without overloading `target_ip`.
 
@@ -18,7 +15,13 @@ Refactor `scripts/run_experiment.py` into two scripts: one for single-challenge 
 Create a Claude Code hook that triggers after `scripts/run_experiment.py` completes. The hook should automatically run the `/analyze-results` skill on the finished experiment and write the analysis as markdown files: an `analysis.md` next to `experiment_summary.json` with the overview table and aggregate stats, and a per-challenge `analysis.md` inside each challenge directory with detailed failure/success analysis from session.json inspection.
 
 ### Parallel local experiment mode — run all Docker challenges concurrently
-Add a `--parallel` flag (or similar) to `scripts/run_experiment.py` that runs all 11 local Docker challenges at the same time instead of sequentially. Each challenge would get its own session-scoped resources (Kali container, challenge container, network, workspace) — essentially auto-generating a `--session-id` per challenge. This would dramatically reduce total experiment wall-clock time from ~11×T to ~1×T. Requires: auto-session-id generation per challenge, concurrent agent loops (threads or asyncio), aggregated result collection, and a resource ceiling guard (Docker memory/CPU) to avoid overloading the host.
+Add a `PARALLEL_MODE` constant and `--parallel` flag to `scripts/run_experiment.py` that runs all 11 local Docker challenges at the same time instead of sequentially. Each challenge would get its own session-scoped resources (Kali container, challenge container, network, workspace) — essentially auto-generating a `--session-id` per challenge. This would dramatically reduce total experiment wall-clock time from ~11×T to ~1×T. Requires: auto-session-id generation per challenge, concurrent agent loops (threads or asyncio), aggregated result collection, and a resource ceiling guard (Docker memory/CPU) to avoid overloading the host.
+
+### Human-in-the-loop (HITL)
+Add a human-in-the-loop mode where the agent can pause and ask the operator for guidance during a challenge run. Useful for debugging agent behavior, providing hints on stuck challenges, and supervised runs where a human monitors progress and can intervene.
+
+### Clean up orphaned branches and worktrees
+Delete stale remote branches after their PRs are merged or closed, and prune any leftover local worktrees. Known stale branches: `worktree-agent-a0403f31` (PR #2 merged), `worktree-agent-a28f5543`, `worktree-agent-ad564b46`, `worktree-agent-a8138c8b`, `claude/research-mobile-coding-o3jPH`, `add-claude-github-actions-1773787370711`.
 
 ## In Review
 
@@ -27,9 +30,6 @@ All review issues fixed (try-unprivileged-first, path validation, portable trunc
 
 ### PTY exec model (experimental) — PR #8
 Fixes applied (relay handoff, pexpect deps, empty command guard). Mergeable as experimental. Open items: parsing regression, ANSI stripping, session history, prompt contradiction.
-
-### Clean up orphaned remote branches
-Delete stale remote branches after their PRs are merged or closed: `worktree-agent-a0403f31` (PR #2 merged), `worktree-agent-a28f5543`, `worktree-agent-ad564b46`, `worktree-agent-a8138c8b`, `claude/research-mobile-coding-o3jPH`, `add-claude-github-actions-1773787370711`.
 
 ## Done
 - [x] Harden default command execution to use non-interactive `tty=False`, `stdin=False`, `demux=True` with labeled `[STDOUT]` / `[STDERR]` output and ANSI stripping
@@ -42,6 +42,7 @@ Delete stale remote branches after their PRs are merged or closed: `worktree-age
 - [x] Add linting docs to CLAUDE.md and AGENTS.md
 - [x] Set up git worktrees for parallel Claude Code instances
 - [x] Add pre-commit hooks for ruff (PR #2 merged)
+- [x] Add type hints to all functions, enable mypy strict mode, and add the mypy pre-commit hook
 - [x] Merge VPN experiment mode (PR #5)
 - [x] Merge per-session Docker isolation (PR #6) with collision-resistant naming and subnet fallback
 - [x] Remove legacy `used_prompts.json` — `session.json` event stream captures all prompt/metadata

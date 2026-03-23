@@ -82,7 +82,9 @@ def _ensure_sudo_ready() -> bool:
 
     if not _has_interactive_tty():
         stderr = (sudo_check.stderr or "").strip()
-        print("❌ Workspace cleanup requires sudo to handle Docker-owned files, but no interactive terminal is available.")
+        print(
+            "❌ Workspace cleanup requires sudo to handle Docker-owned files, but no interactive terminal is available."
+        )
         if stderr:
             print(f"   sudo error: {stderr}")
         print("   Run 'sudo -v' first, then rerun the agent.")

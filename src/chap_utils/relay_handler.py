@@ -25,7 +25,7 @@ def trigger_relay_handoff(
     target_info: str,
     custom_instructions: str,
     current_iteration: int,
-    agent_ips: dict | None = None,
+    agent_ips: dict[str, str] | None = None,
     local_arch: LocalArch | None = None,
     session_path: str | None = None,
 ) -> list[dict[str, str]]:

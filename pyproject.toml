@@ -19,4 +19,25 @@ dependencies = [
 dev = [
     "pre-commit>=4.0.0",
     "ruff>=0.15.6",
+    "mypy>=1.15.0",
+    "pytest>=8.0.0",
 ]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+exclude = [
+    "local_challenges/",
+    "results/",
+    "ctf-workspace/",
+    "ctf-experiment-runner/",
+    ".venv/",
+]
+
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["docker.*", "discord.*", "yaml"]
+ignore_missing_imports = true

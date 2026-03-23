@@ -64,7 +64,7 @@ def _truncate_session_label(normalized_id: str) -> str:
     fallback_prefix = "session"[: max(prefix_budget, 0)].rstrip("-.")
     if fallback_prefix:
         return f"{fallback_prefix}{numeric_suffix}"
-    return suffix_match.group(1)[-_SESSION_LABEL_MAX_LENGTH :]
+    return suffix_match.group(1)[-_SESSION_LABEL_MAX_LENGTH:]
 
 
 def _session_resource_suffix(normalized_id: str, *, use_hash: bool = True) -> str:
@@ -102,7 +102,9 @@ def get_session_subnet_candidates(normalized_id: str, count: int = _SESSION_SUBN
     seen: set[str] = set()
 
     for index in range(count):
-        second_octet = _SESSION_SUBNET_SECOND_OCTET_BASE + (digest[index % len(digest)] % _SESSION_SUBNET_SECOND_OCTET_SPAN)
+        second_octet = _SESSION_SUBNET_SECOND_OCTET_BASE + (
+            digest[index % len(digest)] % _SESSION_SUBNET_SECOND_OCTET_SPAN
+        )
         third_octet = digest[(index + 1) % len(digest)]
         subnet = f"10.{second_octet}.{third_octet}.0/24"
         if subnet in seen:
