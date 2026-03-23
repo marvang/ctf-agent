@@ -11,6 +11,9 @@ Keep the current run metadata as-is for now, but design a richer target-scope re
 ### Modular experiment runner (single-challenge + batch)
 Refactor `scripts/run_experiment.py` into two scripts: one for single-challenge runs (both local and VPN), and one for batch orchestration (local Docker challenges). The single-challenge script would be the core, and the batch script would call it in a loop. This would simplify the if/else branching between local and VPN modes and allow VPN batch runs in the future.
 
+### Replace Discord notifications with lightweight experiment updates skill
+Remove Discord bot integration. Replace with a Claude Code skill that writes concise experiment progress to an `updates.md` file in the experiment directory. The skill reads and appends to it each time the user asks, producing a short mobile-readable status report. Reduces dependency bloat and legacy code.
+
 ### Parallel local experiment mode — run all Docker challenges concurrently
 Add a `PARALLEL_MODE` constant and `--parallel` flag to `scripts/run_experiment.py` that runs all 11 local Docker challenges at the same time instead of sequentially. Each challenge would get its own session-scoped resources (Kali container, challenge container, network, workspace) — essentially auto-generating a `--session-id` per challenge. This would dramatically reduce total experiment wall-clock time from ~11×T to ~1×T. Requires: auto-session-id generation per challenge, concurrent agent loops (threads or asyncio), aggregated result collection, and a resource ceiling guard (Docker memory/CPU) to avoid overloading the host.
 

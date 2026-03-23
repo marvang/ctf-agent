@@ -12,8 +12,11 @@ Usage:
 import argparse
 import json
 import os
+import signal
 import sys
+import threading
 import time
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
 from datetime import datetime
 from typing import Any
 
@@ -77,7 +80,7 @@ TEST_RUN = (
 USE_CUSTOM_INSTRUCTIONS = True  # Enable/disable per-challenge custom instructions. Recommended to keep True.
 CHALLENGE_CUSTOM_INSTRUCTIONS = TEST_CHALLENGE_CUSTOM_INSTRUCTIONS if TEST_RUN else REAL_CHALLENGE_CUSTOM_INSTRUCTIONS
 
-MODEL_NAME = "xiaomi/mimo-v2-pro"
+MODEL_NAME = "minimax/minimax-m2.7"
 # Model names for quick access: anthropic/claude-sonnet-4.6, anthropic/claude-opus-4.6, openai/gpt-5.4-mini, minimax/minimax-m2.5:free, minimax/minimax-m2.7, cognitivecomputations/dolphin-mistral-24b-venice-edition:free, xiaomi/mimo-v2-pro
 CHAP_ENABLED = False
 MAX_ITERATIONS = 100
@@ -95,7 +98,7 @@ CHAP_MIN_ITERATIONS_FOR_RELAY = 30  # Minimum iterations before manual relay is 
 
 DISCORD_NOTIFICATIONS_ENABLED = True  # Set to False, to enable you need to set DISCORD_MAIN_BOT_TOKEN and DISCORD_GUILD_ID in .env which you can get from your Discord developer portal after creating an application and bot
 RESULTS_DIR = "./results"
-EXPERIMENT_SET_NAME = "pre-commit-smoke"
+EXPERIMENT_SET_NAME = "parallel-smoke"
 ENVIRONMENT_MODE: EnvironmentType = "local"  # "local", "private", or "htb"
 
 # --- Local Docker mode ---
@@ -108,14 +111,17 @@ CTF_CHALLENGES = [
     "vm4",
     "vm5",
     "vm6",
-    "vm7",
-    "vm8",
-    "vm9",
-    "vm10",
+    # "vm7",
+    # "vm8",
+    # "vm9",
+    # "vm10",
 ]
 LOCAL_FLAG_DIR = LOCAL_CHALLENGES_ROOT_STR  # Directory containing per-challenge flag.txt files
 LOCAL_ARCH: LocalArch = "aarch64"  # Architecture-specific prompt selection for local challenge runs
 SERVICE_STARTUP_DELAY = 30  # Only for local mode.
+PARALLEL_MODE = True  # Run local challenges concurrently instead of sequentially.
+MAX_PARALLEL_WORKERS = 3  # Max challenges to run at the same time in parallel mode.
+PARALLEL_INTERRUPT_DRAIN_TIMEOUT_SECONDS = 5.0  # Wait briefly for interrupted workers to persist results.
 
 # --- VPN/Remote mode ---
 
@@ -179,6 +185,9 @@ def parse_args() -> argparse.Namespace:
         "--vpn-flags-file", type=str, default=None, help="Path to flags JSON file for validation (VPN mode)"
     )
     parser.add_argument("--vpn-script", type=str, default=None, help="Explicit VPN connect script for VPN mode")
+    parser.add_argument(
+        "--parallel", action="store_true", default=None, help="Run all local challenges concurrently (local mode only)"
+    )
 
     return parser.parse_args()
 
@@ -188,6 +197,7 @@ def apply_cli_overrides(args: argparse.Namespace) -> None:
     global CHAP_ENABLED, EXPERIMENT_SET_NAME, CHAP_TOKEN_LIMIT_BASE
     global MODEL_NAME, CHAP_TOKEN_LIMIT_INCREMENT, CHAP_AUTO_TRIGGER
     global VPN_TARGET_IP, ENVIRONMENT_MODE, VPN_FLAGS_FILE, VPN_CONNECT_SCRIPT
+    global PARALLEL_MODE
 
     if args.chap_enabled is not None:
         CHAP_ENABLED = args.chap_enabled
@@ -210,6 +220,8 @@ def apply_cli_overrides(args: argparse.Namespace) -> None:
         VPN_FLAGS_FILE = args.vpn_flags_file
     if args.vpn_script is not None:
         VPN_CONNECT_SCRIPT = args.vpn_script
+    if args.parallel is not None:
+        PARALLEL_MODE = args.parallel
 
 
 def get_custom_instructions_for_challenge(challenge_name: str) -> str:
@@ -235,6 +247,7 @@ def save_results(
     experiment_timestamp: str | None = None,
     termination_reason: str | None = None,
     vpn_connect_script: str | None = None,
+    parallel_mode: bool = False,
 ) -> None:
     """Save experiment results to structured per-challenge files."""
     os.makedirs(results_dir, exist_ok=True)
@@ -275,15 +288,36 @@ def save_results(
         "target_ip": VPN_TARGET_IP if uses_vpn(ENVIRONMENT_MODE) else None,
         "vpn_flags_file": VPN_FLAGS_FILE,
         "vpn_connect_script": vpn_connect_script,
-        "kali_container_name": session_runtime.kali_container_name,
+        "parallel_mode": parallel_mode,
+        "max_parallel_workers": MAX_PARALLEL_WORKERS if parallel_mode else 1,
+        "kali_container_name": None if parallel_mode else session_runtime.kali_container_name,
         "session_id": session_runtime.session_id,
         "network_name": session_runtime.network_name,
         "subnet": session_runtime.subnet,
-        "workspace_dir": os.path.abspath(session_runtime.workspace_dir),
+        "workspace_dir": None if parallel_mode else os.path.abspath(session_runtime.workspace_dir),
+        "workspace_root_dir": os.path.abspath(session_runtime.workspace_dir),
         "results_dir": os.path.abspath(results_dir),
         "termination_reason": termination_reason or "unknown",
         "use_amd64_prompt": LOCAL_ARCH == "amd64",
     }
+    if parallel_mode:
+        results_by_challenge = {result["challenge_name"]: result for result in results if result.get("challenge_name")}
+        experiment_metadata["challenge_runtime_by_challenge"] = {
+            challenge: {
+                "session_id": results_by_challenge.get(challenge, {}).get("session_id", session_runtime.session_id),
+                "network_name": results_by_challenge.get(challenge, {}).get(
+                    "network_name", session_runtime.network_name
+                ),
+                "subnet": results_by_challenge.get(challenge, {}).get("subnet", session_runtime.subnet),
+                "kali_container_name": results_by_challenge.get(challenge, {}).get(
+                    "kali_container_name", session_runtime.parallel_kali_name(challenge)
+                ),
+                "workspace_dir": results_by_challenge.get(challenge, {}).get(
+                    "workspace_dir", os.path.abspath(os.path.join(session_runtime.workspace_dir, challenge))
+                ),
+            }
+            for challenge in challenges
+        }
     experiment_metadata.update(build_git_provenance())
 
     for result in results:
@@ -311,6 +345,306 @@ def save_results(
         json.dump({"metadata": experiment_metadata}, f, indent=2)
 
     print(f"💾 Results saved to {experiment_dir}")
+
+
+def _append_parallel_result(
+    future: Future[dict[str, Any]],
+    challenge_name: str,
+    results: list[dict[str, Any]],
+    results_lock: threading.Lock,
+    recorded_futures: set[Future[dict[str, Any]]],
+) -> bool:
+    """Append a finished parallel result exactly once."""
+    if future in recorded_futures or not future.done() or future.cancelled():
+        return False
+
+    result = future.result()
+    with results_lock:
+        results.append(result)
+    recorded_futures.add(future)
+    return True
+
+
+def _collect_completed_parallel_results(
+    futures: dict[Future[dict[str, Any]], str],
+    results: list[dict[str, Any]],
+    results_lock: threading.Lock,
+    recorded_futures: set[Future[dict[str, Any]]],
+    total_challenges: int,
+) -> int:
+    """Harvest any completed parallel futures that have not yet been recorded."""
+    appended = 0
+    for future, challenge_name in futures.items():
+        if _append_parallel_result(future, challenge_name, results, results_lock, recorded_futures):
+            appended += 1
+            print(f"✅ [{challenge_name}] Complete ({len(results)}/{total_challenges})")
+    return appended
+
+
+def _stop_parallel_challenge_resources(challenges: list[str], session_runtime: SessionRuntime) -> None:
+    """Best-effort cleanup for all per-challenge resources in parallel mode."""
+    for challenge in challenges:
+        kali_name = session_runtime.parallel_kali_name(challenge)
+        container_name = session_runtime.challenge_container_name(challenge)
+        try:
+            stop_kali_container(kali_name)
+        except Exception:
+            pass
+        try:
+            stop_challenge_container_standalone(container_name)
+        except Exception:
+            pass
+
+
+def _drain_parallel_results_after_interrupt(
+    futures: dict[Future[dict[str, Any]], str],
+    results: list[dict[str, Any]],
+    results_lock: threading.Lock,
+    recorded_futures: set[Future[dict[str, Any]]],
+    total_challenges: int,
+    timeout_seconds: float = PARALLEL_INTERRUPT_DRAIN_TIMEOUT_SECONDS,
+) -> None:
+    """Collect results that finish promptly after an interrupt-triggered shutdown."""
+    _collect_completed_parallel_results(
+        futures,
+        results,
+        results_lock,
+        recorded_futures,
+        total_challenges,
+    )
+
+    pending_futures = [
+        future for future in futures if future not in recorded_futures and not future.cancelled() and not future.done()
+    ]
+    if not pending_futures:
+        return
+
+    _, not_done = wait(pending_futures, timeout=timeout_seconds)
+    _collect_completed_parallel_results(
+        futures,
+        results,
+        results_lock,
+        recorded_futures,
+        total_challenges,
+    )
+
+    if not_done:
+        print(
+            f"⚠️  {len(not_done)} challenge(s) still shutting down after interrupt; saving the results collected so far."
+        )
+
+
+def run_single_challenge(
+    challenge: str,
+    idx: int,
+    total: int,
+    session_runtime: SessionRuntime,
+    experiment_dir: str,
+    experiment_id: str,
+    channel_id: str | None,
+    vpn_connect_script: str | None,
+    flag_entries: list[FlagEntry],
+    is_local: bool,
+    parallel: bool = False,
+) -> dict[str, Any]:
+    """Run a single challenge and return the result dict.
+
+    In parallel mode, each challenge gets its own Kali container and workspace
+    to avoid interference between concurrent runs.
+    """
+    challenge_container_name: str = session_runtime.challenge_container_name(challenge) if is_local else ""
+    kali_name = session_runtime.parallel_kali_name(challenge) if parallel else session_runtime.kali_container_name
+    workspace_dir = session_runtime.challenge_workspace_dir(challenge) if parallel else session_runtime.workspace_dir
+    target_ip = ""
+
+    send_challenge_start_message(channel_id=channel_id, challenge=challenge, index=idx, total=total)
+
+    try:
+        if is_local:
+            print(f"\n📦 [{challenge}] Starting vulnerable container")
+            target_ip = start_challenge_container_standalone(
+                challenge_name=challenge,
+                container_name=challenge_container_name,
+                network_name=session_runtime.network_name,
+            )
+            print(f"✅ [{challenge}] Container started at {target_ip}")
+
+            current_time = datetime.now().strftime("%H:%M:%S %Y-%m-%d")
+            print(f"🕒 [{challenge}] {current_time}")
+
+            print(f"⏳ [{challenge}] Waiting {SERVICE_STARTUP_DELAY}s for service init...")
+            time.sleep(SERVICE_STARTUP_DELAY)
+            print(f"✅ [{challenge}] Proceeding")
+        else:
+            target_ip = VPN_TARGET_IP
+            print(f"\n🌐 [{challenge}] VPN mode: targeting {target_ip}")
+
+        if is_local:
+            kali_ok = start_kali_container_standalone(
+                kali_name,
+                session_runtime.network_name,
+                workspace_dir,
+                include_host_ports=not parallel,
+            )
+            if not kali_ok:
+                send_docker_connection_error_message(
+                    channel_id=channel_id,
+                    container_name=kali_name,
+                    context={"challenge": challenge, "experiment_id": experiment_id},
+                )
+                raise Exception(f"Failed to start Kali container {kali_name}")
+
+        # Load expected flags
+        if not is_local and flag_entries:
+            expected_flags: list[str] | None = [entry.flag for entry in flag_entries]
+        elif is_local and challenge == "vm10":
+            flag_file_path = os.path.join(LOCAL_FLAG_DIR, challenge, "flag.txt")
+            try:
+                with open(flag_file_path) as f:
+                    full_key = f.read().strip()
+                expected_flags = [full_key]
+                print(f"🔑 [{challenge}] Loaded RSA private key ({len(full_key)} bytes)")
+            except FileNotFoundError:
+                print(f"⚠️ [{challenge}] Flag file not found: {flag_file_path}")
+                expected_flags = None
+        elif is_local:
+            expected_flags = get_expected_flag(
+                challenge_name=challenge,
+                ctf_flag_path=LOCAL_FLAG_DIR,
+            )
+        else:
+            expected_flags = None
+
+        if expected_flags:
+            if challenge != "vm10":
+                if len(expected_flags) == 1:
+                    print(f"🏁 [{challenge}] Expected flag: {expected_flags[0]}")
+                else:
+                    print(f"🏁 [{challenge}] Expected flags: {', '.join(expected_flags)}")
+        else:
+            print(f"⚠️ [{challenge}] No expected flag — validation skipped")
+
+        challenge_dir = os.path.join(experiment_dir, challenge)
+        os.makedirs(challenge_dir, exist_ok=True)
+
+        custom_instructions = get_custom_instructions_for_challenge(challenge)
+
+        result = run_experiment_agent(
+            experiment_id=f"{experiment_id}",
+            experiment_loop_iteration=idx,
+            total_loop_iterations=total,
+            target_ip=target_ip,
+            challenge_name=challenge,
+            model_name=MODEL_NAME,
+            chap_enabled=CHAP_ENABLED,
+            chap_auto_trigger=CHAP_AUTO_TRIGGER,
+            max_iterations=MAX_ITERATIONS,
+            command_timeout_seconds=COMMAND_TIMEOUT,
+            max_cost=MAX_COST,
+            max_output_length=MAX_OUTPUT_LENGTH,
+            chap_token_limit_base=CHAP_TOKEN_LIMIT_BASE,
+            chap_token_limit_increment=CHAP_TOKEN_LIMIT_INCREMENT,
+            chap_min_iterations_for_relay=CHAP_MIN_ITERATIONS_FOR_RELAY,
+            kali_container_name=kali_name,
+            custom_instructions=custom_instructions,
+            channel_id=channel_id,
+            local_arch=LOCAL_ARCH,
+            session_path=os.path.join(challenge_dir, "session.json"),
+            workspace_dir=workspace_dir,
+            environment_mode=ENVIRONMENT_MODE,
+            session_id=session_runtime.session_id,
+            network_name=session_runtime.network_name,
+            subnet=session_runtime.subnet,
+            artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
+            vpn_connect_script=vpn_connect_script,
+        )
+
+        result["challenge_name"] = challenge
+        result["mode"] = "experiment_script"
+        result["target_ip"] = result.get("target_ip") or target_ip
+        result["environment_mode"] = result.get("environment_mode") or ENVIRONMENT_MODE
+        result["session_id"] = session_runtime.session_id
+        result["network_name"] = session_runtime.network_name
+        result["subnet"] = session_runtime.subnet
+        result["workspace_dir"] = os.path.abspath(workspace_dir)
+        result["kali_container_name"] = kali_name
+
+        captured_flag = result.get("flag_captured") or ""
+
+        if expected_flags:
+            if challenge == "vm10":
+                flag_valid = validate_rsa_key_match(captured_flag, expected_flags[0])
+            elif not is_local and len(expected_flags) > 1:
+                flag_valid = all_flags_match(captured_flag, expected_flags)
+            else:
+                flag_valid = flag_match(found_flag=captured_flag, ground_truth_flags=expected_flags)
+        else:
+            flag_valid = None
+
+        result["flag_valid"] = flag_valid
+        result["expected_flags"] = expected_flags
+
+        print(f"\n{'=' * 80}")
+        print(f"RESULT: {challenge}")
+        print(f"{'=' * 80}")
+        print(f"Flag captured: {result['flag_captured']}")
+        if expected_flags:
+            print(f"Flag valid: {'✅' if result['flag_valid'] else '❌'} {result['flag_valid']}")
+        print(f"Iterations: {result['iterations']}")
+        print(f"Relay count: {result['relay_count']}")
+        print(f"Cost: ${result['total_cost']:.4f}")
+        print(f"Time: {result['total_time']:.1f}s")
+        print(f"Stopping reason: {result['stopping_reason']}")
+        if result["error"]:
+            print(f"Error: {result['error']}")
+        print(f"{'=' * 80}")
+
+        send_challenge_complete_message(channel_id=channel_id, challenge=challenge, result=result)
+        return result
+
+    except Exception as e:
+        print(f"\n❌ Error running experiment for {challenge}: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+        send_challenge_error_message(
+            channel_id=channel_id, challenge=challenge, error_msg=str(e), experiment_id=experiment_id
+        )
+
+        return {
+            "mode": "experiment_script",
+            "challenge_name": challenge,
+            "target_ip": target_ip if target_ip else VPN_TARGET_IP,
+            "environment_mode": ENVIRONMENT_MODE,
+            "session_id": session_runtime.session_id,
+            "network_name": session_runtime.network_name,
+            "subnet": session_runtime.subnet,
+            "workspace_dir": os.path.abspath(workspace_dir),
+            "kali_container_name": kali_name,
+            "flag_captured": None,
+            "session": None,
+            "iterations": 0,
+            "relay_count": 0,
+            "relay_triggers": [],
+            "error": str(e),
+            "llm_error_details": None,
+            "cost_limit_reached": False,
+            "iteration_limit_reached": False,
+            "stopping_reason": "exception_error",
+            "total_cost": 0.0,
+            "total_time": 0.0,
+            "flag_valid": False,
+            "expected_flags": None,
+            "interrupted_by_user": False,
+        }
+
+    finally:
+        if is_local:
+            print(f"🧹 [{challenge}] Cleaning up...")
+            stop_kali_container(kali_name)
+            print(f"🧹 [{challenge}] Stopping vulnerable container")
+            stop_challenge_container_standalone(challenge_container_name)
 
 
 def main() -> None:
@@ -345,7 +679,13 @@ def main() -> None:
     print(f"Kali container: {session_runtime.kali_container_name}")
     print(f"Network: {session_runtime.network_name} ({session_runtime.subnet})")
     print(f"Workspace: {session_runtime.workspace_dir}")
+    if PARALLEL_MODE:
+        print(f"Parallel: Yes ({MAX_PARALLEL_WORKERS} workers)")
     print("=" * 80)
+
+    # Validate parallel mode
+    if PARALLEL_MODE and ENVIRONMENT_MODE != "local":
+        print("⚠️  PARALLEL_MODE ignored — only supported for local Docker mode. Running sequentially.")
 
     # Validate VPN configuration
     if not is_local and not VPN_TARGET_IP:
@@ -380,6 +720,7 @@ def main() -> None:
     os.makedirs(experiment_dir, exist_ok=True)
     termination_reason = "in_progress"
     total_challenges = len(challenges_to_run)
+    use_parallel = PARALLEL_MODE and is_local and total_challenges > 1
     channel_id = None
 
     try:
@@ -426,6 +767,7 @@ def main() -> None:
             experiment_id,
             termination_reason,
             vpn_connect_script,
+            parallel_mode=use_parallel,
         )
 
         if DISCORD_NOTIFICATIONS_ENABLED:
@@ -445,196 +787,66 @@ def main() -> None:
                         "max_cost": MAX_COST,
                     },
                 )
-        for idx, challenge in enumerate(challenges_to_run, 1):
-            print(f"\n{'=' * 80}")
-            print(f"Challenge {idx}/{total_challenges}: {challenge}")
-            print(f"{'=' * 80}")
-            challenge_container_name: str = session_runtime.challenge_container_name(challenge) if is_local else ""
-            target_ip = ""
+        if use_parallel:
+            print(f"\n🚀 Parallel mode: {len(challenges_to_run)} challenges, {MAX_PARALLEL_WORKERS} workers")
+            print(f"⚠️  This will run up to {MAX_PARALLEL_WORKERS * 2} Docker containers simultaneously")
 
-            send_challenge_start_message(channel_id=channel_id, challenge=challenge, index=idx, total=total_challenges)
-
+            results_lock = threading.Lock()
+            recorded_futures: set[Future[dict[str, Any]]] = set()
+            executor = ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS)
+            interrupted = False
             try:
-                if is_local:
-                    # Start vulnerable container
-                    print(f"\n📦 Starting vulnerable container: {challenge}")
-                    target_ip = start_challenge_container_standalone(
-                        challenge_name=challenge,
-                        container_name=challenge_container_name,
-                        network_name=session_runtime.network_name,
+                futures = {
+                    executor.submit(
+                        run_single_challenge,
+                        challenge=challenge,
+                        idx=idx,
+                        total=total_challenges,
+                        session_runtime=session_runtime,
+                        experiment_dir=experiment_dir,
+                        experiment_id=experiment_id,
+                        channel_id=channel_id,
+                        vpn_connect_script=vpn_connect_script,
+                        flag_entries=flag_entries,
+                        is_local=is_local,
+                        parallel=True,
+                    ): challenge
+                    for idx, challenge in enumerate(challenges_to_run, 1)
+                }
+
+                for future in as_completed(futures):
+                    _append_parallel_result(
+                        future,
+                        futures[future],
+                        results,
+                        results_lock,
+                        recorded_futures,
                     )
-                    print(f"✅ Container started at {target_ip}")
-
-                    current_time = datetime.now().strftime("%H:%M:%S %Y-%m-%d")
-                    print(f"🕒 Current time: {current_time}")
-
-                    print(f"⏳ Waiting {SERVICE_STARTUP_DELAY}s for service to initialize...")
-                    time.sleep(SERVICE_STARTUP_DELAY)
-                    print("✅ Proceeding with challenge")
-                else:
-                    target_ip = VPN_TARGET_IP
-                    print(f"\n🌐 VPN mode: targeting {target_ip}")
-
-                # In local mode, start Kali per-challenge. In VPN mode it's already running.
-                if is_local:
-                    kali_ok = start_kali_container_standalone(
-                        session_runtime.kali_container_name,
-                        session_runtime.network_name,
-                        session_runtime.workspace_dir,
+                    print(f"✅ [{futures[future]}] Complete ({len(results)}/{total_challenges})")
+            except KeyboardInterrupt:
+                interrupted = True
+                print("\n⚠️  Interrupt received — cancelling pending challenges...")
+                executor.shutdown(wait=False, cancel_futures=True)
+                # Suppress further interrupts during container cleanup
+                original_handler = signal.getsignal(signal.SIGINT)
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
+                try:
+                    _stop_parallel_challenge_resources(challenges_to_run, session_runtime)
+                    _drain_parallel_results_after_interrupt(
+                        futures,
+                        results,
+                        results_lock,
+                        recorded_futures,
+                        total_challenges,
                     )
-                    if not kali_ok:
-                        send_docker_connection_error_message(
-                            channel_id=channel_id,
-                            container_name=session_runtime.kali_container_name,
-                            context={"challenge": challenge, "experiment_id": experiment_id},
-                        )
-                        raise Exception("Failed to start Kali container")
-
-                # Load expected flags
-                if not is_local and flag_entries:
-                    expected_flags = [entry.flag for entry in flag_entries]
-                elif is_local and challenge == "vm10":
-                    flag_file_path = os.path.join(LOCAL_FLAG_DIR, challenge, "flag.txt")
-                    try:
-                        with open(flag_file_path) as f:
-                            full_key = f.read().strip()
-                        expected_flags = [full_key]
-                        print(f"🔑 Loaded RSA private key ({len(full_key)} bytes)")
-                    except FileNotFoundError:
-                        print(f"⚠️ Flag file not found: {flag_file_path}")
-                        expected_flags = None
-                elif is_local:
-                    expected_flags = get_expected_flag(
-                        challenge_name=challenge,
-                        ctf_flag_path=LOCAL_FLAG_DIR,
-                    )
-                else:
-                    expected_flags = None
-
-                if expected_flags:
-                    if challenge != "vm10":
-                        if len(expected_flags) == 1:
-                            print(f"🏁 Expected flag: {expected_flags[0]}")
-                        else:
-                            print(f"🏁 Expected flags: {', '.join(expected_flags)}")
-                else:
-                    print("⚠️ No expected flag available — agent will run but validation skipped")
-
-                challenge_dir = os.path.join(experiment_dir, challenge)
-                os.makedirs(challenge_dir, exist_ok=True)
-
-                custom_instructions = get_custom_instructions_for_challenge(challenge)
-
-                result = run_experiment_agent(
-                    experiment_id=f"{experiment_id}",
-                    experiment_loop_iteration=idx,
-                    total_loop_iterations=total_challenges,
-                    target_ip=target_ip,
-                    challenge_name=challenge,
-                    model_name=MODEL_NAME,
-                    chap_enabled=CHAP_ENABLED,
-                    chap_auto_trigger=CHAP_AUTO_TRIGGER,
-                    max_iterations=MAX_ITERATIONS,
-                    command_timeout_seconds=COMMAND_TIMEOUT,
-                    max_cost=MAX_COST,
-                    max_output_length=MAX_OUTPUT_LENGTH,
-                    chap_token_limit_base=CHAP_TOKEN_LIMIT_BASE,
-                    chap_token_limit_increment=CHAP_TOKEN_LIMIT_INCREMENT,
-                    chap_min_iterations_for_relay=CHAP_MIN_ITERATIONS_FOR_RELAY,
-                    kali_container_name=session_runtime.kali_container_name,
-                    custom_instructions=custom_instructions,
-                    channel_id=channel_id,
-                    local_arch=LOCAL_ARCH,
-                    session_path=os.path.join(challenge_dir, "session.json"),
-                    workspace_dir=session_runtime.workspace_dir,
-                    environment_mode=ENVIRONMENT_MODE,
-                    session_id=session_runtime.session_id,
-                    network_name=session_runtime.network_name,
-                    subnet=session_runtime.subnet,
-                    artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
-                    vpn_connect_script=vpn_connect_script,
-                )
-
-                result["challenge_name"] = challenge
-                result["mode"] = "experiment_script"
-                result["target_ip"] = result.get("target_ip") or target_ip
-                result["environment_mode"] = result.get("environment_mode") or ENVIRONMENT_MODE
-
-                captured_flag = result.get("flag_captured") or ""
-
-                if expected_flags:
-                    if challenge == "vm10":
-                        flag_valid = validate_rsa_key_match(captured_flag, expected_flags[0])
-                    elif not is_local and len(expected_flags) > 1:
-                        flag_valid = all_flags_match(captured_flag, expected_flags)
-                    else:
-                        flag_valid = flag_match(found_flag=captured_flag, ground_truth_flags=expected_flags)
-                else:
-                    flag_valid = None  # No flags available for validation
-
-                result["flag_valid"] = flag_valid
-                result["expected_flags"] = expected_flags
-
-                results.append(result)
-
-                print(f"\n{'=' * 80}")
-                print(f"RESULT: {challenge}")
-                print(f"{'=' * 80}")
-                print(f"Flag captured: {result['flag_captured']}")
-                if expected_flags:
-                    print(f"Flag valid: {'✅' if result['flag_valid'] else '❌'} {result['flag_valid']}")
-                print(f"Iterations: {result['iterations']}")
-                print(f"Relay count: {result['relay_count']}")
-                print(f"Cost: ${result['total_cost']:.4f}")
-                print(f"Time: {result['total_time']:.1f}s")
-                print(f"Stopping reason: {result['stopping_reason']}")
-                if result["error"]:
-                    print(f"Error: {result['error']}")
-                print(f"{'=' * 80}")
-
-                send_challenge_complete_message(channel_id=channel_id, challenge=challenge, result=result)
-                if result.get("interrupted_by_user"):
-                    raise KeyboardInterrupt
-
-            except Exception as e:
-                print(f"\n❌ Error running experiment for {challenge}: {e}")
-                import traceback
-
-                traceback.print_exc()
-
-                send_challenge_error_message(
-                    channel_id=channel_id, challenge=challenge, error_msg=str(e), experiment_id=experiment_id
-                )
-
-                results.append(
-                    {
-                        "mode": "experiment_script",
-                        "challenge_name": challenge,
-                        "target_ip": target_ip if "target_ip" in locals() else VPN_TARGET_IP,
-                        "environment_mode": ENVIRONMENT_MODE,
-                        "flag_captured": None,
-                        "session": None,
-                        "iterations": 0,
-                        "relay_count": 0,
-                        "relay_triggers": [],
-                        "error": str(e),
-                        "llm_error_details": None,
-                        "cost_limit_reached": False,
-                        "iteration_limit_reached": False,
-                        "stopping_reason": "exception_error",
-                        "total_cost": 0.0,
-                        "total_time": 0.0,
-                        "flag_valid": False,
-                        "expected_flags": None,
-                    }
-                )
-
+                finally:
+                    signal.signal(signal.SIGINT, original_handler)
+                raise
             finally:
-                print("\n🧹 Cleaning up...")
-                if is_local:
-                    stop_kali_container(session_runtime.kali_container_name)
-                    print(f"🧹 Stopping vulnerable container: {challenge}")
-                    stop_challenge_container_standalone(challenge_container_name)
+                executor.shutdown(wait=not interrupted, cancel_futures=interrupted)
+
+            # Sort by challenge name for deterministic output
+            results.sort(key=lambda r: r.get("challenge_name", ""))
 
             save_results(
                 results,
@@ -645,7 +857,45 @@ def main() -> None:
                 experiment_id,
                 termination_reason,
                 vpn_connect_script,
+                parallel_mode=use_parallel,
             )
+
+        else:
+            # Sequential mode (original behavior)
+            for idx, challenge in enumerate(challenges_to_run, 1):
+                print(f"\n{'=' * 80}")
+                print(f"Challenge {idx}/{total_challenges}: {challenge}")
+                print(f"{'=' * 80}")
+
+                result = run_single_challenge(
+                    challenge=challenge,
+                    idx=idx,
+                    total=total_challenges,
+                    session_runtime=session_runtime,
+                    experiment_dir=experiment_dir,
+                    experiment_id=experiment_id,
+                    channel_id=channel_id,
+                    vpn_connect_script=vpn_connect_script,
+                    flag_entries=flag_entries,
+                    is_local=is_local,
+                    parallel=False,
+                )
+
+                results.append(result)
+                if result.get("interrupted_by_user"):
+                    raise KeyboardInterrupt
+
+                save_results(
+                    results,
+                    results_dir,
+                    session_runtime,
+                    challenges_to_run,
+                    experiment_dir,
+                    experiment_id,
+                    termination_reason,
+                    vpn_connect_script,
+                    parallel_mode=use_parallel,
+                )
 
     except KeyboardInterrupt:
         termination_reason = "interrupted_by_user"
@@ -659,6 +909,7 @@ def main() -> None:
             experiment_id,
             termination_reason,
             vpn_connect_script,
+            parallel_mode=use_parallel,
         )
 
         send_experiment_interrupted_message(
@@ -680,6 +931,7 @@ def main() -> None:
             experiment_id,
             termination_reason,
             vpn_connect_script,
+            parallel_mode=use_parallel,
         )
 
         send_experiment_error_message(channel_id=channel_id, error_msg=str(e), partial_results=len(results))
@@ -695,6 +947,7 @@ def main() -> None:
             experiment_id,
             termination_reason,
             vpn_connect_script,
+            parallel_mode=use_parallel,
         )
 
         print("\n" + "=" * 80)

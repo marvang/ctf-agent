@@ -99,6 +99,14 @@ def get_session_challenge_name(challenge_name: str, normalized_id: str, *, use_h
     return f"{challenge_name}-{_session_resource_suffix(normalized_id, use_hash=use_hash)}"
 
 
+def get_parallel_kali_name(normalized_id: str, challenge_name: str) -> str:
+    """Return a per-challenge Kali container name for parallel experiment mode."""
+    combined = f"{normalized_id}-{challenge_name}"
+    digest = hashlib.sha256(combined.encode("utf-8")).hexdigest()[:_SESSION_HASH_LENGTH]
+    label = _truncate_session_label(normalized_id)
+    return f"{KALI_CONTAINER_NAME}-{label}-{challenge_name}-{digest}"
+
+
 def get_session_subnet_candidates(normalized_id: str, count: int = _SESSION_SUBNET_CANDIDATE_COUNT) -> list[str]:
     """Return a stable sequence of candidate /24 subnets for a session."""
     digest = hashlib.sha256(normalized_id.encode("utf-8")).digest()

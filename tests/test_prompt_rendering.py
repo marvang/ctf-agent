@@ -1,7 +1,9 @@
 import json
 import os
 import tempfile
+import threading
 import unittest
+from concurrent.futures import Future
 from unittest.mock import MagicMock, patch
 
 import main
@@ -304,6 +306,96 @@ class ResultMetadataTests(unittest.TestCase):
             self.assertTrue(metadata["use_amd64_prompt"])
         finally:
             run_experiment.LOCAL_ARCH = original_local_arch
+
+    def test_experiment_results_store_parallel_runtime_metadata(self) -> None:
+        runtime = resolve_session_runtime("prompt-rendering-5")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            experiment_dir = os.path.join(temp_dir, "experiment_20260316_120001")
+            run_experiment.save_results(
+                results=[
+                    {
+                        "challenge_name": "vm0",
+                        "mode": "experiment_script",
+                        "session": None,
+                        "workspace_dir": os.path.abspath(os.path.join(runtime.workspace_dir, "vm0")),
+                        "kali_container_name": runtime.parallel_kali_name("vm0"),
+                        "session_id": runtime.session_id,
+                        "network_name": runtime.network_name,
+                        "subnet": runtime.subnet,
+                        "flag_captured": "HTB{fresh-flag}",
+                        "flag_valid": True,
+                        "iterations": 1,
+                        "relay_count": 0,
+                        "relay_triggers": [],
+                        "error": None,
+                        "llm_error_details": None,
+                        "cost_limit_reached": False,
+                        "iteration_limit_reached": False,
+                        "stopping_reason": "agent_exit",
+                        "total_cost": 0.5,
+                        "total_time": 12.0,
+                    }
+                ],
+                results_dir=temp_dir,
+                session_runtime=runtime,
+                challenges=["vm0", "vm1"],
+                experiment_dir=experiment_dir,
+                experiment_timestamp="20260316_120001",
+                termination_reason="completed",
+                parallel_mode=True,
+            )
+
+            with open(os.path.join(experiment_dir, "vm0", "summary.json")) as handle:
+                challenge_summary = json.load(handle)
+
+            with open(os.path.join(experiment_dir, "experiment_summary.json")) as handle:
+                metadata = json.load(handle)["metadata"]
+
+        self.assertEqual(
+            challenge_summary["workspace_dir"], os.path.abspath(os.path.join(runtime.workspace_dir, "vm0"))
+        )
+        self.assertEqual(challenge_summary["kali_container_name"], runtime.parallel_kali_name("vm0"))
+        self.assertTrue(metadata["parallel_mode"])
+        self.assertIsNone(metadata["kali_container_name"])
+        self.assertIsNone(metadata["workspace_dir"])
+        self.assertEqual(metadata["workspace_root_dir"], os.path.abspath(runtime.workspace_dir))
+        self.assertEqual(
+            metadata["challenge_runtime_by_challenge"]["vm0"]["workspace_dir"],
+            os.path.abspath(os.path.join(runtime.workspace_dir, "vm0")),
+        )
+        self.assertEqual(
+            metadata["challenge_runtime_by_challenge"]["vm1"]["kali_container_name"],
+            runtime.parallel_kali_name("vm1"),
+        )
+
+
+class ParallelResultTests(unittest.TestCase):
+    def test_drain_parallel_results_after_interrupt_collects_finished_futures(self) -> None:
+        early_future: Future[dict[str, object]] = Future()
+        early_future.set_result({"challenge_name": "vm0"})
+        late_future: Future[dict[str, object]] = Future()
+        futures = {early_future: "vm0", late_future: "vm1"}
+        results: list[dict[str, object]] = []
+        recorded_futures: set[Future[dict[str, object]]] = set()
+        results_lock = threading.Lock()
+
+        def complete_late_future(pending_futures: list[Future[dict[str, object]]], timeout: float):
+            self.assertEqual(pending_futures, [late_future])
+            self.assertEqual(timeout, run_experiment.PARALLEL_INTERRUPT_DRAIN_TIMEOUT_SECONDS)
+            late_future.set_result({"challenge_name": "vm1"})
+            return {late_future}, set()
+
+        with patch.object(run_experiment, "wait", side_effect=complete_late_future):
+            run_experiment._drain_parallel_results_after_interrupt(
+                futures=futures,
+                results=results,
+                results_lock=results_lock,
+                recorded_futures=recorded_futures,
+                total_challenges=2,
+            )
+
+        self.assertEqual([result["challenge_name"] for result in results], ["vm0", "vm1"])
+        self.assertEqual(recorded_futures, {early_future, late_future})
 
 
 class SessionStateTests(unittest.TestCase):
