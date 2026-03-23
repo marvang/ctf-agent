@@ -2,6 +2,18 @@
 
 ## Backlog
 
+### Extract shared agent loop from main.py and main_experiment_agent.py
+~300 lines of near-identical loop logic (command tagging, empty retries, relay triggering, token thresholds, exit/relay detection). Extract into a shared module with callbacks for interactive/experiment-specific behavior. High impact but high risk — needs careful testing. Subsumes ~15 smaller duplication findings between the two files.
+
+### Group `run_experiment_agent()` parameters into dataclasses
+18 scalar parameters covering CHAP config, Docker names, workspace, and environment. Group into config dataclasses (`CHAPConfig`, `DockerConfig`, `WorkspaceConfig`) to reduce call-site errors and improve API clarity.
+
+### Add dirty-flag to session persistence
+`persist_session()` is called every agent loop iteration even when state hasn't changed. Add a dirty flag to skip no-op writes. Risk: if flag logic is wrong, sessions silently stop persisting.
+
+### Deduplicate discord_utils field builders
+Multiple functions in `discord_utils/` build embed fields from context dicts using the same pattern. Extract `build_context_fields()` into `core.py`.
+
 ### Multi-host target metadata/schema (future)
 Keep the current run metadata as-is for now, but design a richer target-scope representation later so benchmark artifacts can describe multi-host environments, pivots, and allowed ranges without overloading `target_ip`.
 

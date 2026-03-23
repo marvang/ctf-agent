@@ -254,6 +254,13 @@ def _safe_send(
         return False
 
 
+def truncate_error_message(msg: str, max_len: int = 500) -> str:
+    """Truncate an error message for Discord embed display."""
+    if len(msg) > max_len:
+        return msg[: max_len - 3] + "..."
+    return msg
+
+
 def _create_embed(
     title: str, description: str, color: discord.Color, fields: list[dict[str, Any]] | None = None
 ) -> discord.Embed:

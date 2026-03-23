@@ -7,7 +7,7 @@ from typing import Any
 
 import discord
 
-from .core import _create_embed, _safe_send
+from .core import _create_embed, _safe_send, truncate_error_message
 
 
 def send_llm_error_message(channel_id: str | None, error_msg: str, context: dict[str, Any]) -> bool:
@@ -40,9 +40,7 @@ def send_llm_error_message(channel_id: str | None, error_msg: str, context: dict
     if not channel_id:
         return False
 
-    # Truncate error message if too long
-    if len(error_msg) > 500:
-        error_msg = error_msg[:497] + "..."
+    error_msg = truncate_error_message(error_msg)
 
     # Build fields from context
     fields = []

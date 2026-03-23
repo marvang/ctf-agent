@@ -7,7 +7,7 @@ from typing import Any
 
 import discord
 
-from .core import _create_embed, _safe_send
+from .core import _create_embed, _safe_send, truncate_error_message
 
 
 def send_challenge_start_message(
@@ -190,9 +190,7 @@ def send_challenge_error_message(
     if not channel_id:
         return False
 
-    # Truncate error message if too long
-    if len(error_msg) > 500:
-        error_msg = error_msg[:497] + "..."
+    error_msg = truncate_error_message(error_msg)
 
     fields = [
         {"name": "Challenge", "value": challenge, "inline": True},

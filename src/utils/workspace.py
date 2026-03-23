@@ -109,7 +109,8 @@ def _ensure_sudo_ready() -> bool:
 def _delete_workspace_item(item_path: str, workspace_dir: str) -> bool:
     """Delete a workspace path. Tries unprivileged first, escalates to sudo on PermissionError."""
     item_name = os.path.basename(item_path)
-    item_type = "directory" if os.path.isdir(item_path) else "file"
+    is_dir = os.path.isdir(item_path)
+    item_type = "directory" if is_dir else "file"
 
     if not _validate_path_containment(item_path, workspace_dir):
         print(f"❌ FATAL: Refusing to delete {item_name}: path escapes workspace directory")
@@ -118,7 +119,7 @@ def _delete_workspace_item(item_path: str, workspace_dir: str) -> bool:
     try:
         if os.path.islink(item_path):
             os.unlink(item_path)
-        elif os.path.isdir(item_path):
+        elif is_dir:
             shutil.rmtree(item_path)
         else:
             os.remove(item_path)

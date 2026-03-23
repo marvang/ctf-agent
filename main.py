@@ -29,8 +29,10 @@ from src.chap_utils.relay_handler import trigger_relay_handoff
 from src.config.constants import (
     ARTIFACT_SCHEMA_VERSION,
     COMMAND_TIMEOUT_SECONDS,
+    EXIT_COMMANDS,
     MAX_EMPTY_COMMAND_RETRIES,
     MAX_OUTPUT_LENGTH,
+    RELAY_COMMAND,
 )
 from src.config.session_runtime import SessionRuntime, resolve_session_runtime
 from src.config.workspace import (
@@ -662,9 +664,9 @@ def main() -> None:
             assistant_tag = "assistant_command"
             if not shell_cmd_clean:
                 assistant_tag = "assistant_empty_command"
-            elif shell_cmd_clean.lower() in ["exit", "quit", "terminate"]:
+            elif shell_cmd_clean.lower() in EXIT_COMMANDS:
                 assistant_tag = "assistant_exit"
-            elif shell_cmd_clean.lower() == "relay":
+            elif shell_cmd_clean.lower() == RELAY_COMMAND:
                 assistant_tag = "assistant_relay"
 
             assistant_event = append_session_event(
@@ -761,12 +763,12 @@ def main() -> None:
 
             empty_command_count = 0
 
-            if shell_cmd_clean.lower() in ["exit", "quit", "terminate"]:
+            if shell_cmd_clean.lower() in EXIT_COMMANDS:
                 print("\n✅ Agent requested termination. Exiting...")
                 stopping_reason = "agent_exit"
                 break
 
-            if shell_cmd_clean.lower() == "relay":
+            if shell_cmd_clean.lower() == RELAY_COMMAND:
                 if not use_chap:
                     print("\n⚠️  CHAP not enabled. Cannot trigger relay.")
                     print("💡 Restart the agent with CHAP enabled to use relay functionality.")

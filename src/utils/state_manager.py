@@ -10,6 +10,7 @@ import copy
 import json
 import os
 import tempfile
+import uuid
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
@@ -28,8 +29,6 @@ def _copy_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
 
 def create_session(model: str, chap_enabled: bool = False) -> dict[str, Any]:
     """Create a new session with unique ID and initial state."""
-    import uuid
-
     session = {
         "schema_version": 3,
         "id": str(uuid.uuid4()),

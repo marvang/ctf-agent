@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 from src.chap_utils.protocol_generator import PROTOCOL_GENERATOR_SYSTEM_PROMPT
 from src.chap_utils.relay_handler import trigger_relay_handoff
-from src.config.constants import KALI_CONTAINER_NAME, MAX_EMPTY_COMMAND_RETRIES
+from src.config.constants import EXIT_COMMANDS, KALI_CONTAINER_NAME, MAX_EMPTY_COMMAND_RETRIES, RELAY_COMMAND
 from src.config.workspace import (
     WORKSPACE_DIR,
     WORKSPACE_FILES_TO_EMPTY,
@@ -379,9 +379,9 @@ def run_experiment_agent(
             assistant_tag = "assistant_command"
             if not shell_cmd_clean:
                 assistant_tag = "assistant_empty_command"
-            elif shell_cmd_clean.lower() in ["exit", "quit", "terminate"]:
+            elif shell_cmd_clean.lower() in EXIT_COMMANDS:
                 assistant_tag = "assistant_exit"
-            elif shell_cmd_clean.lower() == "relay":
+            elif shell_cmd_clean.lower() == RELAY_COMMAND:
                 assistant_tag = "assistant_relay"
 
             assistant_event = append_session_event(
@@ -459,12 +459,12 @@ def run_experiment_agent(
 
             empty_command_count = 0
 
-            if shell_cmd_clean.lower() in ["exit", "quit", "terminate"]:
+            if shell_cmd_clean.lower() in EXIT_COMMANDS:
                 print("\n✅ Agent requested termination")
                 stopping_reason = "agent_exit"
                 break
 
-            if shell_cmd_clean.lower() == "relay":
+            if shell_cmd_clean.lower() == RELAY_COMMAND:
                 if not chap_enabled:
                     print("\n⚠️  CHAP not enabled. Cannot trigger relay.")
                     error_message = "Relay requested but CHAP not enabled"

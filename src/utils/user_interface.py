@@ -127,7 +127,7 @@ def prompt_architecture_selection() -> LocalArch:
 
 def prompt_model_selection(
     default_model: str | None = None,
-) -> str:  # TODO: remove default mode, if nothing is selected, just pick the first one as default
+) -> str:
     """Prompt the user to choose a recommended model or enter a custom one."""
     custom_index = len(_RECOMMENDED_MODELS) + 1
     default_choice = "1"

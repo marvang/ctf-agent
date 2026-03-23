@@ -15,6 +15,10 @@ COMMAND_TIMEOUT_SECONDS = 180
 MAX_OUTPUT_LENGTH = 12000
 ARTIFACT_SCHEMA_VERSION = 2
 
+# Agent command keywords
+EXIT_COMMANDS = ("exit", "quit", "terminate")
+RELAY_COMMAND = "relay"
+
 # Local challenges
 LOCAL_CHALLENGES_ROOT = _PROJECT_ROOT / "local_challenges" / "autopenbench_improved"
 LOCAL_CHALLENGES_ROOT_STR = str(LOCAL_CHALLENGES_ROOT)
