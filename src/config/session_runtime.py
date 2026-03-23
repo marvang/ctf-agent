@@ -30,7 +30,7 @@ class SessionRuntime:
 
     def challenge_container_name(self, challenge_name: str) -> str:
         """Return the challenge container name for this session."""
-        return get_session_challenge_name(challenge_name, self.session_id, use_hash=not self.auto_generated)
+        return get_session_challenge_name(challenge_name, self.session_id)
 
 
 def _next_session_number(prefix: str) -> int:
@@ -51,26 +51,31 @@ def _next_session_number(prefix: str) -> int:
 
 
 def auto_generate_session_id(prefix: str = "default") -> str:
-    """Generate the next sequential session ID for *prefix* (e.g. ``default-1``)."""
+    """Generate and reserve the next sequential session ID for *prefix* (e.g. ``default-1``)."""
     normalized_prefix = normalize_session_id(prefix)
+    SESSION_WORKSPACES_ROOT.mkdir(parents=True, exist_ok=True)
     n = _next_session_number(normalized_prefix)
-    return f"{normalized_prefix}-{n}"
+    while True:
+        session_id = f"{normalized_prefix}-{n}"
+        try:
+            SESSION_WORKSPACES_ROOT.joinpath(session_id).mkdir(exist_ok=False)
+            return session_id
+        except FileExistsError:
+            n += 1
 
 
 def resolve_session_runtime(session_id: str | None, *, auto_prefix: str = "default") -> SessionRuntime:
     """Resolve naming and paths for a run. Auto-generates a session ID when *session_id* is ``None``."""
     if session_id is None:
         generated_id = auto_generate_session_id(auto_prefix)
-        use_hash = False
     else:
         generated_id = normalize_session_id(session_id)
-        use_hash = True
 
     subnet_candidates = tuple(get_session_subnet_candidates(generated_id))
     return SessionRuntime(
         session_id=generated_id,
-        kali_container_name=get_session_kali_name(generated_id, use_hash=use_hash),
-        network_name=get_session_network_name(generated_id, use_hash=use_hash),
+        kali_container_name=get_session_kali_name(generated_id),
+        network_name=get_session_network_name(generated_id),
         subnet=get_session_subnet_from_id(generated_id),
         subnet_candidates=subnet_candidates,
         workspace_dir=get_workspace_dir(generated_id),

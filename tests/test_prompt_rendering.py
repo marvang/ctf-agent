@@ -192,7 +192,7 @@ class ResultMetadataTests(unittest.TestCase):
                 target_ip="10.13.37.7",
                 timestamp="20260316_120000",
                 workspace_dir=temp_dir,
-                session_runtime=resolve_session_runtime(None),
+                session_runtime=resolve_session_runtime("prompt-rendering-1"),
             )
 
             with open(os.path.join(temp_dir, "session_summary.json")) as handle:
@@ -229,7 +229,7 @@ class ResultMetadataTests(unittest.TestCase):
                 target_ip="10.13.37.7",
                 timestamp="20260316_120000",
                 workspace_dir=temp_dir,
-                session_runtime=resolve_session_runtime(None),
+                session_runtime=resolve_session_runtime("prompt-rendering-2"),
             )
 
             with open(os.path.join(temp_dir, "summary.json")) as handle:
@@ -270,7 +270,7 @@ class ResultMetadataTests(unittest.TestCase):
                 target_ip="10.13.37.7",
                 timestamp="20260316_120000",
                 workspace_dir=temp_dir,
-                session_runtime=resolve_session_runtime(None),
+                session_runtime=resolve_session_runtime("prompt-rendering-3"),
             )
 
             with open(os.path.join(temp_dir, "summary.json")) as handle:
@@ -287,7 +287,7 @@ class ResultMetadataTests(unittest.TestCase):
                 run_experiment.save_results(
                     results=[],
                     results_dir=temp_dir,
-                    session_runtime=resolve_session_runtime(None),
+                    session_runtime=resolve_session_runtime("prompt-rendering-4"),
                     challenges=["vm0"],
                     experiment_dir=experiment_dir,
                     experiment_timestamp="20260316_120000",

@@ -70,8 +70,8 @@ def _truncate_session_label(normalized_id: str) -> str:
 def _session_resource_suffix(normalized_id: str, *, use_hash: bool = True) -> str:
     """Build a readable suffix for session-scoped resources.
 
-    Auto-generated sequential IDs (e.g. ``default-1``) pass ``use_hash=False``
-    for cleaner Docker names.  User-provided IDs keep the hash for collision safety.
+    Callers can disable hashing for display-oriented helpers, but Docker-facing
+    resource names should keep the hash for collision safety.
     """
     readable = _truncate_session_label(normalized_id)
     if not use_hash:

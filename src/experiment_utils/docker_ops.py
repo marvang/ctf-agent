@@ -1,5 +1,6 @@
 """Docker container and network lifecycle operations for experiments."""
 
+import json
 import re
 import shlex
 import subprocess
@@ -373,15 +374,31 @@ def _inspect_network_subnet(network_name: str) -> str | None:
             "inspect",
             network_name,
             "--format",
-            "{{range .IPAM.Config}}{{.Subnet}}{{end}}",
+            "{{json .IPAM.Config}}",
         ],
         capture_output=True,
         text=True,
     )
     if inspect.returncode != 0:
         return None
-    subnet = inspect.stdout.strip()
-    return subnet or None
+    raw_config = inspect.stdout.strip()
+    if not raw_config or raw_config == "null":
+        return None
+
+    try:
+        ipam_config = json.loads(raw_config)
+    except json.JSONDecodeError:
+        return raw_config
+
+    configs = ipam_config if isinstance(ipam_config, list) else [ipam_config]
+    parsed_subnets = [config.get("Subnet") for config in configs if isinstance(config, dict) and config.get("Subnet")]
+    if not parsed_subnets:
+        return None
+
+    for subnet in parsed_subnets:
+        if ":" not in subnet:
+            return subnet
+    return parsed_subnets[0]
 
 
 def start_network(

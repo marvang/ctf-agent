@@ -1,9 +1,12 @@
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from textwrap import dedent
 from unittest.mock import patch
 
+import src.config.session_runtime as session_runtime
+import src.config.workspace as workspace_config
 import src.experiment_utils.docker_ops as docker_ops
 from src.config.constants import (
     LOCAL_CHALLENGES_COMPOSE_FILE,
@@ -41,13 +44,13 @@ class LocalChallengesTests(unittest.TestCase):
         self.assertEqual(get_session_network_name(normalized), "target_net_review-session-6-28ee4f47")
         self.assertEqual(get_session_challenge_name("vm3", normalized), "vm3-review-session-6-28ee4f47")
 
-    def test_auto_generated_session_resource_names_preserve_numeric_suffix(self) -> None:
-        first_run = get_session_network_name("pre-commit-smoke-1", use_hash=False)
-        tenth_run = get_session_network_name("pre-commit-smoke-10", use_hash=False)
+    def test_auto_generated_session_resource_names_keep_unique_hash_suffix(self) -> None:
+        first_run = get_session_network_name("abcdefghijklmnopqrs-1")
+        second_run = get_session_network_name("abcdefghijklmnopqrst-1")
 
-        self.assertEqual(first_run, "target_net_pre-commit-smoke-1")
-        self.assertEqual(tenth_run, "target_net_pre-commit-smok-10")
-        self.assertNotEqual(first_run, tenth_run)
+        self.assertTrue(first_run.startswith("target_net_abcdefghijklmnop-1-"))
+        self.assertTrue(second_run.startswith("target_net_abcdefghijklmnop-1-"))
+        self.assertNotEqual(first_run, second_run)
 
     def test_session_subnets_use_separate_private_range(self) -> None:
         subnet = get_session_subnet_from_id("parallel-run")
@@ -179,7 +182,36 @@ class LocalChallengeDockerLifecycleTests(unittest.TestCase):
         self.assertNotIn("-p", docker_run_command)
 
 
+class SessionRuntimeTests(unittest.TestCase):
+    def test_resolve_session_runtime_reserves_unique_auto_generated_workspaces(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            with (
+                patch.object(session_runtime, "SESSION_WORKSPACES_ROOT", workspace_root),
+                patch.object(workspace_config, "SESSION_WORKSPACES_ROOT", workspace_root),
+            ):
+                first = session_runtime.resolve_session_runtime(None, auto_prefix="race-demo")
+                second = session_runtime.resolve_session_runtime(None, auto_prefix="race-demo")
+                self.assertEqual(first.session_id, "race-demo-1")
+                self.assertEqual(second.session_id, "race-demo-2")
+                self.assertTrue((workspace_root / "race-demo-1").is_dir())
+                self.assertTrue((workspace_root / "race-demo-2").is_dir())
+
+
 class NetworkLifecycleTests(unittest.TestCase):
+    @patch.object(docker_ops.subprocess, "run")
+    def test_inspect_network_subnet_prefers_ipv4_from_multiple_ipam_configs(self, run_mock) -> None:
+        run_mock.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout='[{"Subnet":"fd00::/64"},{"Subnet":"10.210.0.0/24"}]\n',
+            stderr="",
+        )
+
+        subnet = docker_ops._inspect_network_subnet("target_net_session")
+
+        self.assertEqual(subnet, "10.210.0.0/24")
+
     @patch.object(docker_ops.subprocess, "run")
     def test_start_network_uses_fallback_subnet_on_overlap(self, run_mock) -> None:
         run_mock.side_effect = [
