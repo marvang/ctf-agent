@@ -19,18 +19,15 @@ synced between both files.
 import argparse
 import json
 import os
-import subprocess
 import time
-from datetime import datetime
 
 from dotenv import load_dotenv
 
 from src.chap_utils.protocol_generator import PROTOCOL_GENERATOR_SYSTEM_PROMPT
 from src.chap_utils.relay_handler import trigger_relay_handoff
 from src.config.constants import (
+    ARTIFACT_SCHEMA_VERSION,
     COMMAND_TIMEOUT_SECONDS,
-    KALI_CONTAINER_NAME,
-    LOCAL_CHALLENGES_NETWORK_NAME,
     MAX_EMPTY_COMMAND_RETRIES,
     MAX_OUTPUT_LENGTH,
 )
@@ -43,12 +40,9 @@ from src.config.workspace import (
 )
 from src.experiment_utils.docker_ops import (
     start_challenge_container_standalone,
-    start_container,
-    start_kali_container,
     start_kali_container_standalone,
     start_network,
     stop_challenge_container_standalone,
-    stop_container,
     stop_kali_container,
     stop_network,
 )
@@ -57,8 +51,9 @@ from src.llm_utils.prompt_builder import build_initial_messages
 from src.utils.docker_exec import cleanup_tmux_session, execute_command, get_container_ips
 from src.utils.docker_utils import connect_to_docker
 from src.utils.environment import EnvironmentType, LocalArch, uses_vpn
-from src.utils.git import get_git_commit_hash
-from src.utils.output import truncate_output
+from src.utils.git import build_git_provenance
+from src.utils.output import format_command_result_for_llm, print_initial_prompts
+from src.utils.run_ids import generate_run_id
 from src.utils.session_utils import display_session_summary
 from src.utils.signal_handler import (
     is_vpn_connected,
@@ -77,7 +72,6 @@ from src.utils.signal_handler import (
 from src.utils.state_manager import (
     append_session_event,
     build_assistant_message,
-    build_used_prompts_payload,
     create_session,
     persist_session,
     set_session_context,
@@ -102,95 +96,6 @@ from src.utils.workspace import cleanup_workspace
 MAX_COST_AUTO_MODE = 2
 MAX_ITERATIONS_AUTO_MODE = 200
 LOCAL_CTF_STARTUP_DELAY_SECONDS = 30
-LOCAL_CTF_NETWORK_NAME = LOCAL_CHALLENGES_NETWORK_NAME
-
-
-def ensure_kali_container_running(
-    kali_container_name: str = KALI_CONTAINER_NAME,
-    network_name: str = LOCAL_CHALLENGES_NETWORK_NAME,
-):
-    """Connect to the Kali container, starting it first if required."""
-    _, container = connect_to_docker(kali_container_name=kali_container_name)
-    if container is not None:
-        container.reload()
-
-    if container is None or container.status != "running":
-        print(f"\n🔄 Docker container '{kali_container_name}' is not running. Starting it now...")
-        try:
-            print(f"🌐 Ensuring Docker network '{network_name}' is available...")
-            start_network(network_name)
-        except Exception as exc:
-            print(f"❌ Failed to prepare Docker network '{network_name}': {exc}")
-            return None
-
-        if not start_kali_container(kali_container_name):
-            return None
-
-        _, container = connect_to_docker(kali_container_name=kali_container_name)
-        if container is None:
-            return None
-        container.reload()
-
-    return container
-
-
-def stop_local_challenge(challenge_name: str, quiet: bool = False) -> None:
-    """Stop a local Docker challenge container if it exists."""
-    try:
-        stop_container(challenge_name)
-        if not quiet:
-            print(f"🧹 Stopped local challenge: {challenge_name}")
-    except Exception as exc:
-        if not quiet:
-            print(f"⚠️  Failed to stop local challenge '{challenge_name}': {exc}")
-
-
-def list_network_container_names(network_name: str = LOCAL_CTF_NETWORK_NAME) -> list[str] | None:
-    """List container names still attached to the local challenge Docker network."""
-    inspect = subprocess.run(
-        [
-            "docker",
-            "network",
-            "inspect",
-            network_name,
-            "--format",
-            "{{range $id, $container := .Containers}}{{$container.Name}}\n{{end}}",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if inspect.returncode != 0:
-        return None
-
-    return [line.strip() for line in inspect.stdout.splitlines() if line.strip()]
-
-
-def remove_local_network_if_unused(network_name: str = LOCAL_CTF_NETWORK_NAME) -> None:
-    """Remove the local challenge Docker network only when nothing else is attached."""
-    attached_containers = list_network_container_names(network_name)
-    if attached_containers is None:
-        return
-
-    if attached_containers:
-        print(
-            f"⚠️  Leaving Docker network '{network_name}' in place; active endpoints remain: "
-            f"{', '.join(attached_containers)}"
-        )
-        return
-
-    remove = subprocess.run(
-        ["docker", "network", "rm", network_name],
-        capture_output=True,
-        text=True,
-    )
-    if remove.returncode == 0:
-        print(f"🧹 Removed Docker network: {network_name}")
-        return
-
-    stderr = (remove.stderr or "").strip()
-    if "No such network" in stderr:
-        return
-    print(f"⚠️  Leaving Docker network '{network_name}' in place: {stderr or 'unknown error'}")
 
 
 def save_interactive_results(
@@ -212,18 +117,22 @@ def save_interactive_results(
     timestamp: str,
     workspace_dir: str,
     session_runtime: SessionRuntime,
+    vpn_connect_script: str | None = None,
 ) -> None:
     """Save interactive session results to structured per-run files (mirrors experiment format)."""
     os.makedirs(session_dir, exist_ok=True)
     use_vpn = uses_vpn(environment_mode)
+    git_provenance = build_git_provenance()
+    command_executed = any(event.get("tag") == "framework_command_result" for event in session.get("events", []))
 
     # 1. session.json - Full command/output history
     session_path = os.path.join(session_dir, "session.json")
     persist_session(session, session_path)
 
     # 2. summary.json - Lightweight metrics (no command history)
-    captured_flag = read_captured_flag(workspace_dir)
+    captured_flag = read_captured_flag(workspace_dir) if command_executed else None
     summary = {
+        "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
         "mode": "interactive",
         "challenge_name": challenge_name,
         "environment_mode": environment_mode,
@@ -233,6 +142,8 @@ def save_interactive_results(
         "workspace_dir": os.path.abspath(workspace_dir),
         "kali_container_name": session_runtime.kali_container_name,
         "network_name": session_runtime.network_name,
+        "subnet": session_runtime.subnet,
+        "vpn_connect_script": vpn_connect_script,
         "iterations": iteration,
         "relay_count": relay_count,
         "relay_triggers": session.get("relay_triggers", []),
@@ -248,29 +159,11 @@ def save_interactive_results(
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
 
-    # 3. used_prompts.json - Prompts for reproducibility
-    prompt_payload = build_used_prompts_payload(
-        session,
-        mode="interactive",
-        experiment_id=session.get("id"),
-        challenge_name=challenge_name,
-        model_name=selected_model,
-        chap_enabled=use_chap,
-        chap_auto_trigger=chap_config.get("auto_trigger", False),
-        environment_mode=environment_mode,
-        target_ip=target_ip,
-    )
-
-    prompt_path = os.path.join(session_dir, "used_prompts.json")
-    with open(prompt_path, "w") as f:
-        json.dump(prompt_payload, f, indent=2)
-        f.write("\n")
-
-    # 4. session_summary.json - Run-level metadata
+    # 3. session_summary.json - Run-level metadata
     session_summary = {
         "metadata": {
+            "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
             "timestamp": timestamp,
-            "git_commit_hash": get_git_commit_hash(),
             "mode": "interactive",
             "model": selected_model,
             "chap_enabled": use_chap,
@@ -294,8 +187,11 @@ def save_interactive_results(
             "session_id": session_runtime.session_id,
             "kali_container_name": session_runtime.kali_container_name,
             "network_name": session_runtime.network_name,
+            "subnet": session_runtime.subnet,
+            "vpn_connect_script": vpn_connect_script,
         }
     }
+    session_summary["metadata"].update(git_provenance)
     summary_meta_path = os.path.join(session_dir, "session_summary.json")
     with open(summary_meta_path, "w") as f:
         json.dump(session_summary, f, indent=2)
@@ -317,8 +213,11 @@ def _parse_main_args() -> argparse.Namespace:
 
 def main():
     cli_args = _parse_main_args()
-    session_runtime = resolve_session_runtime(cli_args.session_id)
+    session_runtime = resolve_session_runtime(cli_args.session_id, auto_prefix="interactive")
     workspace_dir = ensure_workspace_dir(session_runtime.workspace_dir)
+    run_timestamp = generate_run_id()
+    session_dir = os.path.join("./results/interactive", f"session_{run_timestamp}")
+    os.makedirs(session_dir, exist_ok=True)
 
     # Register signal handler for graceful shutdown
     register_signal_handler()
@@ -327,11 +226,10 @@ def main():
 
     # Display banner and get user selections
     print_banner()
-    if session_runtime.isolated:
-        print(f"Session ID: {session_runtime.session_id}")
-        print(f"Kali container: {session_runtime.kali_container_name}")
-        print(f"Network: {session_runtime.network_name} ({session_runtime.subnet})")
-        print(f"Workspace: {workspace_dir}")
+    print(f"Session ID: {session_runtime.session_id}")
+    print(f"Kali container: {session_runtime.kali_container_name}")
+    print(f"Network: {session_runtime.network_name} ({session_runtime.subnet})")
+    print(f"Workspace: {workspace_dir}")
     environment_mode, vpn_environment = prompt_environment_selection()
     local_arch: LocalArch | None = None
     if environment_mode == "local":
@@ -361,17 +259,11 @@ def main():
             set_vpn_connected(False)
 
         if environment_mode == "local":
-            if challenge_name:
-                if session_runtime.isolated and challenge_container_name is not None:
-                    stop_challenge_container_standalone(challenge_container_name)
-                else:
-                    stop_local_challenge(challenge_name)
+            if challenge_name and challenge_container_name is not None:
+                stop_challenge_container_standalone(challenge_container_name)
             stop_kali_container(session_runtime.kali_container_name)
-            if session_runtime.isolated:
-                stop_network(session_runtime.network_name)
-            else:
-                remove_local_network_if_unused(session_runtime.network_name)
-        elif session_runtime.isolated:
+            stop_network(session_runtime.network_name)
+        else:
             stop_kali_container(session_runtime.kali_container_name)
             stop_network(session_runtime.network_name)
 
@@ -380,11 +272,71 @@ def main():
     # Prompt for CHAP (Context Handoff Protocol) configuration
     chap_config = prompt_chap_usage()
     use_chap = bool(chap_config.get("enabled", False))
+    custom_instructions = ""
+    session_path = os.path.join(session_dir, "session.json")
+    session = create_session(model=selected_model, chap_enabled=use_chap)
+    set_session(session)
+    set_model(selected_model)
+    set_session_dir(session_dir)
+    set_session_context(
+        session,
+        mode="interactive",
+        experiment_id=session["id"],
+        model_name=selected_model,
+        chap_enabled=use_chap,
+        chap_auto_trigger=chap_config.get("auto_trigger", False),
+        environment_mode=environment_mode,
+        target_ip=target_ip,
+        session_id=session_runtime.session_id,
+        kali_container_name=session_runtime.kali_container_name,
+        network_name=session_runtime.network_name,
+        subnet=session_runtime.subnet,
+        workspace_dir=workspace_dir,
+        artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
+    )
+    stopping_reason = None
+    error_message = None
+    llm_error_details = None
+    relay_count = 0
+    iteration = 0
+    session_start_time = time.time()
+    set_start_time(session_start_time)
+    _results_saved = False
+
+    def save_current_results(current_stopping_reason: str, current_error_message: str | None = None) -> None:
+        nonlocal _results_saved
+        if _results_saved:
+            return
+        session["metrics"]["total_iterations"] = iteration
+        session["metrics"]["total_time"] = time.time() - session_start_time
+        save_interactive_results(
+            session=session,
+            stopping_reason=current_stopping_reason,
+            error_message=current_error_message if current_error_message is not None else error_message,
+            llm_error_details=llm_error_details,
+            relay_count=relay_count,
+            iteration=iteration,
+            session_dir=session_dir,
+            selected_model=selected_model,
+            environment_mode=environment_mode,
+            use_chap=use_chap,
+            chap_config=chap_config,
+            local_arch=local_arch,
+            custom_instructions=custom_instructions,
+            challenge_name=challenge_name,
+            target_ip=target_ip,
+            timestamp=run_timestamp,
+            workspace_dir=workspace_dir,
+            session_runtime=session_runtime,
+            vpn_connect_script=vpn_connect_script,
+        )
+        _results_saved = True
 
     try:
         approved_workspace_patterns = load_workspace_approved_patterns()
     except RuntimeError as exc:
         print(f"\n❌ {exc}")
+        save_current_results("workspace_config_error", str(exc))
         return
 
     # Clean up workspace files from previous sessions
@@ -393,38 +345,34 @@ def main():
         approved_workspace_patterns,
         WORKSPACE_FILES_TO_EMPTY,
     ):
+        save_current_results("workspace_cleanup_failed", "Workspace cleanup failed - aborting to prevent contamination")
         return
 
     if environment_mode == "local":
         print("\n📦 Local Container Mode")
         challenge_name = prompt_local_challenge_selection()
         if not challenge_name:
+            save_current_results("user_cancelled", "No local challenge selected")
             return
 
         try:
-            if session_runtime.isolated:
-                print(f"\n🌐 Ensuring Docker network '{session_runtime.network_name}' is available...")
-                start_network(session_runtime.network_name, session_runtime.subnet)
-            else:
-                print("\n🌐 Ensuring Docker network is available...")
-                start_network()
+            print(f"\n🌐 Ensuring Docker network '{session_runtime.network_name}' is available...")
+            session_runtime.subnet = start_network(
+                session_runtime.network_name,
+                session_runtime.subnet or "",
+                subnet_candidates=session_runtime.subnet_candidates,
+            )
 
             print(f"\n🧹 Resetting local challenge: {challenge_name}")
             challenge_container_name = session_runtime.challenge_container_name(challenge_name)
-            if session_runtime.isolated:
-                stop_challenge_container_standalone(challenge_container_name)
-            else:
-                stop_local_challenge(challenge_name, quiet=True)
+            stop_challenge_container_standalone(challenge_container_name)
 
             print(f"\n📦 Starting vulnerable container: {challenge_name}")
-            if session_runtime.isolated:
-                target_ip = start_challenge_container_standalone(
-                    challenge_name=challenge_name,
-                    container_name=challenge_container_name,
-                    network_name=session_runtime.network_name,
-                )
-            else:
-                target_ip = start_container(challenge_name)
+            target_ip = start_challenge_container_standalone(
+                challenge_name=challenge_name,
+                container_name=challenge_container_name,
+                network_name=session_runtime.network_name,
+            )
             print(f"✅ Container started at {target_ip}")
 
             print(f"⏳ Waiting {LOCAL_CTF_STARTUP_DELAY_SECONDS}s for service to initialize...")
@@ -432,31 +380,36 @@ def main():
             print("✅ Proceeding with challenge")
         except Exception as exc:
             print(f"\n❌ Failed to start local challenge '{challenge_name}': {exc}")
+            save_current_results("local_challenge_start_failed", str(exc))
             cleanup_on_exit()
             return
 
         target_info = f"{challenge_name} ({target_ip})"
-    elif session_runtime.isolated:
+    else:
         try:
             print(f"\n🌐 Ensuring Docker network '{session_runtime.network_name}' is available...")
-            start_network(session_runtime.network_name, session_runtime.subnet)
+            session_runtime.subnet = start_network(
+                session_runtime.network_name,
+                session_runtime.subnet or "",
+                subnet_candidates=session_runtime.subnet_candidates,
+            )
         except Exception as exc:
             print(f"\n❌ Failed to prepare Docker network '{session_runtime.network_name}': {exc}")
+            save_current_results("network_setup_failed", str(exc))
             cleanup_on_exit()
             return
 
-    if session_runtime.isolated:
-        if not start_kali_container_standalone(
-            session_runtime.kali_container_name,
-            session_runtime.network_name,
-            workspace_dir,
-        ):
-            cleanup_on_exit()
-            return
-        _, container = connect_to_docker(kali_container_name=session_runtime.kali_container_name)
-    else:
-        container = ensure_kali_container_running(session_runtime.kali_container_name, session_runtime.network_name)
+    if not start_kali_container_standalone(
+        session_runtime.kali_container_name,
+        session_runtime.network_name,
+        workspace_dir,
+    ):
+        save_current_results("docker_start_failed", "Failed to start Kali container")
+        cleanup_on_exit()
+        return
+    _, container = connect_to_docker(kali_container_name=session_runtime.kali_container_name)
     if container is None:
+        save_current_results("docker_connection_error", "Failed to connect to Kali container")
         cleanup_on_exit()
         return
 
@@ -466,12 +419,14 @@ def main():
     if use_vpn:
         if vpn_environment is None:
             print("❌ VPN environment not configured")
+            save_current_results("vpn_setup_error", "VPN environment not configured")
             cleanup_on_exit()
             return
 
         # For private VPN: check setup and discover scripts
         if vpn_environment == "private":
             if not check_private_vpn_setup():
+                save_current_results("vpn_setup_error", "Private VPN setup is incomplete")
                 cleanup_on_exit()
                 return
             scripts = discover_vpn_scripts(container, vpn_environment)
@@ -480,6 +435,7 @@ def main():
 
         if not connect_vpn(container, vpn_environment, vpn_connect_script):
             print(get_vpn_setup_hint(vpn_environment))
+            save_current_results("vpn_connection_failed", "VPN connection failed")
             cleanup_on_exit()
             return
         else:
@@ -488,14 +444,10 @@ def main():
 
         target_ip = prompt_target_ip()
         if not target_ip:
+            save_current_results("user_cancelled", "No target IP provided")
             cleanup_on_exit()
             return
         target_info = target_ip
-
-    # Create session
-    session = create_session(model=selected_model, chap_enabled=use_chap)
-    set_session(session)
-    set_model(selected_model)
 
     # Display configuration summary
     print_config_summary(target_info)
@@ -514,6 +466,8 @@ def main():
         local_arch=local_arch,
     )
 
+    print_initial_prompts(messages)
+
     # Set challenge_name for VPN modes (local mode already set by prompt_local_challenge_selection)
     if challenge_name is None:
         if environment_mode == "htb":
@@ -521,22 +475,13 @@ def main():
         else:
             challenge_name = "private_vpn_range"
 
-    # Results directory setup
-    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    session_dir = os.path.join("./results/interactive", f"session_{run_timestamp}", challenge_name)
-    os.makedirs(session_dir, exist_ok=True)
-
-    session_path = os.path.join(session_dir, "session.json")
     set_session_context(
         session,
-        mode="interactive",
-        experiment_id=session["id"],
         challenge_name=challenge_name,
-        model_name=selected_model,
-        chap_enabled=use_chap,
-        chap_auto_trigger=chap_config.get("auto_trigger", False),
         environment_mode=environment_mode,
         target_ip=target_ip,
+        subnet=session_runtime.subnet,
+        vpn_connect_script=vpn_connect_script,
     )
     append_session_event(
         session,
@@ -565,18 +510,7 @@ def main():
             session_path=session_path,
         )
 
-    # Stopping/error tracking (mirrors main_experiment_agent.py)
-    stopping_reason = None
-    error_message = None
-    llm_error_details = None
-    relay_count = 0
-
-    iteration = 0
     set_iteration(iteration)
-
-    # Track session start time
-    session_start_time = time.time()
-    set_start_time(session_start_time)
 
     # Threshold tracking flags
     cost_threshold_prompted = False
@@ -589,38 +523,11 @@ def main():
     # Empty command retry tracking
     empty_command_count = 0
 
-    # Guard flag to prevent double-save (signal handler + finally both fire on sys.exit)
-    _results_saved = False
-
     # Register save callback for signal handler (Ctrl+C)
     def save_on_interrupt():
-        nonlocal _results_saved
-        session["metrics"]["total_iterations"] = iteration
-        session["metrics"]["total_time"] = time.time() - session_start_time
-        save_interactive_results(
-            session=session,
-            stopping_reason="interrupted_by_user",
-            error_message=error_message,
-            llm_error_details=llm_error_details,
-            relay_count=relay_count,
-            iteration=iteration,
-            session_dir=session_dir,
-            selected_model=selected_model,
-            environment_mode=environment_mode,
-            use_chap=use_chap,
-            chap_config=chap_config,
-            local_arch=local_arch,
-            custom_instructions=custom_instructions,
-            challenge_name=challenge_name,
-            target_ip=target_ip,
-            timestamp=run_timestamp,
-            workspace_dir=workspace_dir,
-            session_runtime=session_runtime,
-        )
-        _results_saved = True
+        save_current_results("interrupted_by_user")
 
     set_save_callback(save_on_interrupt)
-    set_session_dir(session_dir)
 
     try:
         while True:
@@ -922,16 +829,15 @@ def main():
                 continue
 
             print("\n🤖 Executing...")
-            success, output, exit_code = execute_command(container, shell_command, COMMAND_TIMEOUT_SECONDS)
+            command_result = execute_command(container, shell_command, COMMAND_TIMEOUT_SECONDS)
+            formatted_output = format_command_result_for_llm(command_result, MAX_OUTPUT_LENGTH)
 
-            llm_output = truncate_output(output, MAX_OUTPUT_LENGTH)
+            print("\n📤 Command Result:")
+            print(formatted_output.content)
+            if not command_result.success:
+                print(f"⚠️  Exit code: {command_result.exit_code}")
 
-            print("\n📤 Output:")
-            print(llm_output)
-            if not success:
-                print(f"⚠️  Exit code: {exit_code}")
-
-            result_content = f"Command executed with exit code {exit_code}. Output:\n{llm_output}"
+            result_content = formatted_output.content
 
             # Show CHAP 80% warning ONCE when threshold is crossed
             if use_chap and token_limit_for_agent > 0:
@@ -947,14 +853,16 @@ def main():
                 tag="framework_command_result",
                 message=result_message,
                 parsed={
-                    "exit_code": exit_code,
-                    "output": llm_output,
+                    "exit_code": command_result.exit_code,
+                    "stdout": formatted_output.stdout,
+                    "stderr": formatted_output.stderr,
                 },
                 iteration=iteration,
                 metadata={
                     "assistant_event_index": assistant_event["event_index"],
                     "included_in_history": True,
-                    "success": success,
+                    "success": command_result.success,
+                    "timed_out": command_result.timed_out,
                 },
                 session_path=session_path,
             )
@@ -978,31 +886,7 @@ def main():
         if not _results_saved:
             if stopping_reason is None:
                 stopping_reason = "unknown"
-
-            session["metrics"]["total_iterations"] = iteration
-            session["metrics"]["total_time"] = time.time() - session_start_time
-            persist_session(session, session_path)
-
-            save_interactive_results(
-                session=session,
-                stopping_reason=stopping_reason,
-                error_message=error_message,
-                llm_error_details=llm_error_details,
-                relay_count=relay_count,
-                iteration=iteration,
-                session_dir=session_dir,
-                selected_model=selected_model,
-                environment_mode=environment_mode,
-                use_chap=use_chap,
-                chap_config=chap_config,
-                local_arch=local_arch,
-                custom_instructions=custom_instructions,
-                challenge_name=challenge_name,
-                target_ip=target_ip,
-                timestamp=run_timestamp,
-                workspace_dir=workspace_dir,
-                session_runtime=session_runtime,
-            )
+            save_current_results(stopping_reason)
 
         cleanup_on_exit()
 

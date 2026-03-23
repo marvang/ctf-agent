@@ -5,8 +5,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import main
-import scripts.run_experiment as run_experiment
 import src.experiment_utils.docker_ops as docker_ops
 import src.experiment_utils.main_experiment_agent as experiment_agent
 import src.utils.docker_utils as docker_utils
@@ -14,9 +12,11 @@ from src.config.constants import KALI_CONTAINER_NAME
 
 
 class KaliContainerConfigTests(unittest.TestCase):
-    def test_shared_kali_container_name_is_used_across_entrypoints(self) -> None:
-        self.assertEqual(main.KALI_CONTAINER_NAME, KALI_CONTAINER_NAME)
-        self.assertEqual(run_experiment.KALI_CONTAINER_NAME, KALI_CONTAINER_NAME)
+    def test_session_runtime_kali_names_derive_from_shared_constant(self) -> None:
+        from src.config.session_runtime import resolve_session_runtime
+
+        runtime = resolve_session_runtime("test-shared")
+        self.assertTrue(runtime.kali_container_name.startswith(KALI_CONTAINER_NAME))
 
     def test_helper_defaults_use_shared_kali_container_name(self) -> None:
         self.assertEqual(
@@ -113,6 +113,7 @@ services:
             )
 
             expected_mount = f"{workspace_path.resolve()}:/ctf-workspace"
+            expected_vpn_mount = f"{(workspace_path / 'vpn').resolve()}:/ctf-workspace/vpn"
 
         self.assertTrue(result)
         docker_run_command = run_mock.call_args_list[1].args[0]
@@ -122,6 +123,48 @@ services:
         self.assertIn("/ctf-workspace", docker_run_command)
         self.assertIn("-v", docker_run_command)
         self.assertIn(expected_mount, docker_run_command)
+        self.assertIn(expected_vpn_mount, docker_run_command)
+
+    @patch.object(docker_ops.subprocess, "run")
+    def test_start_kali_container_standalone_copies_shared_vpn_material_into_session_workspace(
+        self,
+        run_mock,
+    ) -> None:
+        run_mock.side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0),
+            subprocess.CompletedProcess(args=[], returncode=0),
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            compose_path = Path(temp_dir) / "docker-compose.yml"
+            workspace_path = Path(temp_dir) / "ctf-workspaces" / "session-1"
+            shared_vpn_path = Path(temp_dir) / "shared-vpn"
+            shared_vpn_path.mkdir()
+            (shared_vpn_path / "vpn-connect.sh").write_text("#!/bin/sh\necho connected\n")
+            compose_path.write_text(
+                """
+services:
+  ctf-agent-kali:
+    image: ctf-agent-kali
+    tty: true
+    stdin_open: true
+    working_dir: /ctf-workspace
+    volumes:
+      - ./ctf-workspace:/ctf-workspace
+"""
+            )
+
+            with patch.object(docker_ops, "SHARED_VPN_DIR", str(shared_vpn_path)):
+                result = docker_ops.start_kali_container_standalone(
+                    container_name="ctf-agent-kali-session",
+                    network_name="target_net_session",
+                    workspace_dir=str(workspace_path),
+                    compose_file=compose_path,
+                )
+
+            copied_script = workspace_path / "vpn" / "vpn-connect.sh"
+            self.assertTrue(result)
+            self.assertTrue(copied_script.exists())
+            self.assertEqual(copied_script.read_text(), "#!/bin/sh\necho connected\n")
 
 
 class StopKaliContainerTests(unittest.TestCase):

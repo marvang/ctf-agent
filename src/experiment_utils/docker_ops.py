@@ -1,7 +1,9 @@
 """Docker container and network lifecycle operations for experiments."""
 
+import json
 import re
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Final
@@ -15,7 +17,7 @@ from src.config.constants import (
     LOCAL_CHALLENGES_SUBNET,
     get_local_challenge_container_name,
 )
-from src.config.workspace import CONTAINER_WORKSPACE_DIR, ensure_workspace_dir
+from src.config.workspace import CONTAINER_WORKSPACE_DIR, SHARED_VPN_DIR, ensure_workspace_dir
 
 _PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _NETWORK_NAME: Final[str] = LOCAL_CHALLENGES_NETWORK_NAME
@@ -110,6 +112,7 @@ def _run_container_from_service(
     *,
     ip_address: str | None = None,
     volume_target_overrides: dict[str, str] | None = None,
+    extra_volumes: list[str] | None = None,
     include_host_ports: bool = True,
 ) -> None:
     """Start a detached container from a compose service definition."""
@@ -164,6 +167,8 @@ def _run_container_from_service(
             "-v",
             _resolve_volume_mount(str(volume), compose_path, volume_target_overrides=volume_target_overrides),
         ]
+    for volume in extra_volumes or []:
+        cmd += ["-v", volume]
 
     if include_host_ports:
         for port in service_config.get("ports", []):
@@ -316,12 +321,21 @@ def start_kali_container_standalone(
     try:
         ensure_workspace_dir(workspace_dir)
         print(f"🔄 Starting {container_name} (standalone)...")
+        extra_volumes: list[str] = []
+        shared_vpn_dir = Path(SHARED_VPN_DIR)
+        if shared_vpn_dir.exists():
+            session_vpn_dir = Path(workspace_dir) / "vpn"
+            if session_vpn_dir.exists():
+                shutil.rmtree(session_vpn_dir)
+            shutil.copytree(shared_vpn_dir, session_vpn_dir)
+            extra_volumes.append(f"{session_vpn_dir.resolve()}:{CONTAINER_WORKSPACE_DIR}/vpn")
         _run_container_from_service(
             service_name=KALI_CONTAINER_NAME,
             compose_file=compose_file,
             container_name=container_name,
             network_name=network_name,
             volume_target_overrides={CONTAINER_WORKSPACE_DIR: str(Path(workspace_dir).resolve())},
+            extra_volumes=extra_volumes,
         )
         print(f"✅ {container_name} started (standalone)")
         return True
@@ -356,32 +370,85 @@ def stop_kali_container(container_name: str = _DEFAULT_KALI_NAME) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def start_network(network_name: str = _NETWORK_NAME, subnet: str = _SUBNET) -> None:
-    """Create the Docker network if it does not already exist."""
-    exists = subprocess.run(
-        ["docker", "network", "inspect", network_name],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+def _inspect_network_subnet(network_name: str) -> str | None:
+    """Return the first configured subnet for a Docker network."""
+    inspect = subprocess.run(
+        [
+            "docker",
+            "network",
+            "inspect",
+            network_name,
+            "--format",
+            "{{json .IPAM.Config}}",
+        ],
+        capture_output=True,
+        text=True,
     )
-    if exists.returncode == 0:
-        return
+    if inspect.returncode != 0:
+        return None
+    raw_config = inspect.stdout.strip()
+    if not raw_config or raw_config == "null":
+        return None
 
     try:
-        subprocess.run(
-            ["docker", "network", "create", f"--subnet={subnet}", network_name],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except subprocess.CalledProcessError as err:
-        message = (err.stderr or "").lower()
-        if "already exists" in message:
-            return
-        raise
+        ipam_config = json.loads(raw_config)
+    except json.JSONDecodeError:
+        return raw_config
+
+    configs = ipam_config if isinstance(ipam_config, list) else [ipam_config]
+    parsed_subnets = [config.get("Subnet") for config in configs if isinstance(config, dict) and config.get("Subnet")]
+    if not parsed_subnets:
+        return None
+
+    for subnet in parsed_subnets:
+        if ":" not in subnet:
+            return subnet
+    return parsed_subnets[0]
+
+
+def start_network(
+    network_name: str = _NETWORK_NAME,
+    subnet: str = _SUBNET,
+    subnet_candidates: tuple[str, ...] | list[str] | None = None,
+) -> str | None:
+    """Create the Docker network if it does not already exist and return the subnet in use."""
+    existing_subnet = _inspect_network_subnet(network_name)
+    if existing_subnet is not None:
+        return existing_subnet
+
+    candidate_subnets: list[str] = []
+    for candidate in [subnet, *(subnet_candidates or [])]:
+        if candidate and candidate not in candidate_subnets:
+            candidate_subnets.append(candidate)
+
+    last_error: subprocess.CalledProcessError | None = None
+    for candidate_subnet in candidate_subnets or [subnet]:
+        try:
+            subprocess.run(
+                ["docker", "network", "create", f"--subnet={candidate_subnet}", network_name],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return candidate_subnet
+        except subprocess.CalledProcessError as err:
+            message = (err.stderr or "").lower()
+            if "already exists" in message:
+                return _inspect_network_subnet(network_name)
+            if "overlap" in message or "pool overlaps" in message:
+                last_error = err
+                continue
+            raise
+
+    if last_error is not None:
+        raise RuntimeError(
+            f"Failed to allocate a non-overlapping subnet for network {network_name}: {(last_error.stderr or '').strip()}"
+        ) from last_error
+    return None
 
 
 def stop_network(network_name: str = _NETWORK_NAME) -> None:
-    """Remove the Docker network if it exists, force-disconnecting containers if needed."""
+    """Remove the Docker network if it exists, but never disconnect unrelated endpoints."""
     if (
         subprocess.run(
             ["docker", "network", "inspect", network_name],
@@ -405,33 +472,7 @@ def stop_network(network_name: str = _NETWORK_NAME) -> None:
         return
 
     if remove.stderr and ("has active endpoints" in remove.stderr or "in use" in remove.stderr):
-        containers = subprocess.run(
-            [
-                "docker",
-                "network",
-                "inspect",
-                network_name,
-                "--format",
-                "{{range $id, $_ := .Containers}}{{$id}}\\n{{end}}",
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.splitlines()
-        for container_id in containers:
-            if container_id:
-                subprocess.run(
-                    ["docker", "network", "disconnect", "-f", network_name, container_id],
-                    check=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-        subprocess.run(
-            ["docker", "network", "rm", network_name],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        print(f"⚠️  Leaving Docker network '{network_name}' in place; active endpoints remain attached.")
         return
 
     raise RuntimeError(f"Failed to remove network {network_name}: {(remove.stderr or '').strip()}")

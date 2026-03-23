@@ -8,13 +8,14 @@ import main
 import scripts.run_experiment as run_experiment
 import src.chap_utils.protocol_generator as protocol_generator
 import src.experiment_utils.main_experiment_agent as experiment_agent
+import src.utils.discord_utils.challenge_messages as challenge_messages
 import src.utils.discord_utils.error_messages as error_messages
+import src.utils.discord_utils.experiment_messages as experiment_messages
 from src.config.session_runtime import resolve_session_runtime
 from src.llm_utils.prompt_builder import build_initial_messages, build_relay_messages
 from src.utils.state_manager import (
     append_session_event,
     build_assistant_message,
-    build_used_prompts_payload,
     create_session,
     set_session_context,
 )
@@ -116,6 +117,18 @@ class PromptRenderingTests(unittest.TestCase):
         self.assertIn("Agent Docker IP (eth0): 172.20.0.5", messages[1]["content"])
         self.assertNotIn("Agent VPN IP (tun0):", messages[1]["content"])
 
+    def test_remote_prompt_includes_non_tun_vpn_interface(self) -> None:
+        messages = build_initial_messages(
+            environment_mode="htb",
+            target_info="10.10.10.10",
+            use_chap=False,
+            custom_instructions="",
+            agent_ips={"eth0": "172.18.0.4", "utun5": "10.10.14.9"},
+            local_arch=None,
+        )
+
+        self.assertIn("Agent VPN IP (utun5): 10.10.14.9", messages[1]["content"])
+
     def test_relay_prompt_includes_protocols(self) -> None:
         messages = build_relay_messages(
             session={
@@ -181,91 +194,91 @@ class ResultMetadataTests(unittest.TestCase):
                 target_ip="10.13.37.7",
                 timestamp="20260316_120000",
                 workspace_dir=temp_dir,
-                session_runtime=resolve_session_runtime(None),
+                session_runtime=resolve_session_runtime("prompt-rendering-1"),
             )
 
             with open(os.path.join(temp_dir, "session_summary.json")) as handle:
                 metadata = json.load(handle)["metadata"]
 
             self.assertTrue(metadata["use_amd64_prompt"])
+            self.assertEqual(metadata["artifact_schema_version"], 2)
+            self.assertIn("git_dirty", metadata)
 
-    def test_interactive_results_keep_used_prompts_legacy_shape_from_events(self) -> None:
+    def test_interactive_results_skip_stale_flag_when_no_command_ran(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            session = create_session(model="openai/gpt-5.3-codex", chap_enabled=True)
-            set_session_context(
-                session,
-                experiment_id="session-1",
-                challenge_name="vm0",
-                model_name="openai/gpt-5.3-codex",
-                chap_enabled=True,
-                chap_auto_trigger=True,
-                environment_mode="local",
-                target_ip="10.13.37.7",
-            )
-            append_session_event(
-                session,
-                stream="main_agent",
-                tag="initial_system_prompt",
-                message={"role": "system", "content": "event system"},
-                iteration=0,
-            )
-            append_session_event(
-                session,
-                stream="main_agent",
-                tag="initial_user_prompt",
-                message={"role": "user", "content": "event user"},
-                iteration=0,
-            )
-            append_session_event(
-                session,
-                stream="protocol_generation",
-                tag="protocol_generator_system_prompt_template",
-                message={"role": "system", "content": "protocol system"},
-                iteration=0,
-            )
-            append_session_event(
-                session,
-                stream="main_agent",
-                tag="relay_user_prompt",
-                message={"role": "user", "content": "relay user"},
-                iteration=4,
-                metadata={"relay_number": 1},
-            )
+            session = create_session(model="openai/gpt-5.3-codex")
+            session["metrics"]["total_cost"] = 0.0
+            session["metrics"]["total_time"] = 1.25
+            os.makedirs(temp_dir, exist_ok=True)
+            with open(os.path.join(temp_dir, "flags.txt"), "w") as handle:
+                handle.write("HTB{stale-flag}\n")
 
             main.save_interactive_results(
                 session=session,
-                stopping_reason="agent_exit",
-                error_message=None,
+                stopping_reason="workspace_cleanup_failed",
+                error_message="Workspace cleanup failed",
                 llm_error_details=None,
-                relay_count=1,
-                iteration=3,
+                relay_count=0,
+                iteration=0,
                 session_dir=temp_dir,
                 selected_model="openai/gpt-5.3-codex",
                 environment_mode="local",
-                use_chap=True,
-                chap_config={"auto_trigger": True},
+                use_chap=False,
+                chap_config={},
                 local_arch="amd64",
                 custom_instructions="",
                 challenge_name="vm0",
                 target_ip="10.13.37.7",
                 timestamp="20260316_120000",
                 workspace_dir=temp_dir,
-                session_runtime=resolve_session_runtime(None),
+                session_runtime=resolve_session_runtime("prompt-rendering-2"),
             )
 
-            with open(os.path.join(temp_dir, "used_prompts.json")) as handle:
-                payload = json.load(handle)
+            with open(os.path.join(temp_dir, "summary.json")) as handle:
+                summary = json.load(handle)
 
-        self.assertEqual(payload["system_prompt"], "event system")
-        self.assertEqual(payload["initial_messages"], [{"role": "user", "content": "event user"}])
-        self.assertEqual(payload["protocol_generator_system_prompt"], "protocol system")
-        self.assertEqual(
-            payload["relay_initial_messages"],
-            [{"relay_number": 1, "user_content": "relay user"}],
-        )
-        self.assertEqual(payload["challenge_name"], "vm0")
-        self.assertEqual(payload["environment_mode"], "local")
-        self.assertEqual(payload["target_ip"], "10.13.37.7")
+            self.assertIsNone(summary["flag_captured"])
+
+    def test_interactive_results_read_flag_after_command_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            session = create_session(model="openai/gpt-5.3-codex")
+            session["metrics"]["total_cost"] = 0.0
+            session["metrics"]["total_time"] = 1.25
+            append_session_event(
+                session,
+                stream="main_agent",
+                tag="framework_command_result",
+                message={"role": "user", "content": "command output"},
+                iteration=0,
+            )
+            with open(os.path.join(temp_dir, "flags.txt"), "w") as handle:
+                handle.write("HTB{fresh-flag}\n")
+
+            main.save_interactive_results(
+                session=session,
+                stopping_reason="agent_exit",
+                error_message=None,
+                llm_error_details=None,
+                relay_count=0,
+                iteration=1,
+                session_dir=temp_dir,
+                selected_model="openai/gpt-5.3-codex",
+                environment_mode="local",
+                use_chap=False,
+                chap_config={},
+                local_arch="amd64",
+                custom_instructions="",
+                challenge_name="vm0",
+                target_ip="10.13.37.7",
+                timestamp="20260316_120000",
+                workspace_dir=temp_dir,
+                session_runtime=resolve_session_runtime("prompt-rendering-3"),
+            )
+
+            with open(os.path.join(temp_dir, "summary.json")) as handle:
+                summary = json.load(handle)
+
+            self.assertEqual(summary["flag_captured"], "HTB{fresh-flag}")
 
     def test_experiment_results_keep_use_amd64_prompt_metadata(self) -> None:
         original_local_arch = run_experiment.LOCAL_ARCH
@@ -276,7 +289,7 @@ class ResultMetadataTests(unittest.TestCase):
                 run_experiment.save_results(
                     results=[],
                     results_dir=temp_dir,
-                    session_runtime=resolve_session_runtime(None),
+                    session_runtime=resolve_session_runtime("prompt-rendering-4"),
                     challenges=["vm0"],
                     experiment_dir=experiment_dir,
                     experiment_timestamp="20260316_120000",
@@ -291,77 +304,6 @@ class ResultMetadataTests(unittest.TestCase):
             self.assertTrue(metadata["use_amd64_prompt"])
         finally:
             run_experiment.LOCAL_ARCH = original_local_arch
-
-    def test_experiment_results_keep_used_prompts_legacy_shape_from_events(self) -> None:
-        session = create_session(model="openai/gpt-5.3-codex", chap_enabled=True)
-        set_session_context(
-            session,
-            experiment_id="exp-1",
-            challenge_name="vm0",
-            model_name="openai/gpt-5.3-codex",
-            chap_enabled=True,
-            chap_auto_trigger=True,
-            target_ip="192.168.5.5",
-        )
-        append_session_event(
-            session,
-            stream="main_agent",
-            tag="initial_system_prompt",
-            message={"role": "system", "content": "event system"},
-            iteration=0,
-        )
-        append_session_event(
-            session,
-            stream="main_agent",
-            tag="initial_user_prompt",
-            message={"role": "user", "content": "event user"},
-            iteration=0,
-        )
-        append_session_event(
-            session,
-            stream="protocol_generation",
-            tag="protocol_generator_system_prompt_template",
-            message={"role": "system", "content": "protocol system"},
-            iteration=0,
-        )
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            experiment_dir = os.path.join(temp_dir, "experiment_20260316_120000")
-            run_experiment.save_results(
-                results=[
-                    {
-                        "challenge_name": "vm0",
-                        "session": session,
-                        "flag_captured": None,
-                        "iterations": 0,
-                        "relay_count": 0,
-                        "error": None,
-                        "llm_error_details": None,
-                        "cost_limit_reached": False,
-                        "iteration_limit_reached": False,
-                        "stopping_reason": "agent_exit",
-                        "total_time": 0.0,
-                        "total_cost": 0.0,
-                        "mode": "experiment_script",
-                        "flag_valid": False,
-                        "expected_flags": None,
-                    }
-                ],
-                results_dir=temp_dir,
-                session_runtime=resolve_session_runtime(None),
-                challenges=["vm0"],
-                experiment_dir=experiment_dir,
-                experiment_timestamp="20260316_120000",
-                termination_reason="completed",
-            )
-
-            with open(os.path.join(experiment_dir, "vm0", "used_prompts.json")) as handle:
-                payload = json.load(handle)
-
-        self.assertEqual(payload["system_prompt"], "event system")
-        self.assertEqual(payload["initial_messages"], [{"role": "user", "content": "event user"}])
-        self.assertEqual(payload["protocol_generator_system_prompt"], "protocol system")
-        self.assertEqual(payload["challenge_name"], "vm0")
 
 
 class SessionStateTests(unittest.TestCase):
@@ -379,55 +321,9 @@ class SessionStateTests(unittest.TestCase):
     def test_create_session_initializes_event_log(self) -> None:
         session = create_session(model="openai/gpt-5.3-codex")
 
-        self.assertEqual(session["schema_version"], 2)
+        self.assertEqual(session["schema_version"], 3)
         self.assertEqual(session["events"], [])
         self.assertEqual(session["context"], {})
-
-    def test_build_used_prompts_payload_uses_session_chap_enabled_fallback(self) -> None:
-        session = create_session(model="openai/gpt-5.3-codex", chap_enabled=True)
-        append_session_event(
-            session,
-            stream="main_agent",
-            tag="initial_system_prompt",
-            message={"role": "system", "content": "system"},
-            iteration=0,
-        )
-        append_session_event(
-            session,
-            stream="main_agent",
-            tag="initial_user_prompt",
-            message={"role": "user", "content": "user"},
-            iteration=0,
-        )
-
-        payload = build_used_prompts_payload(
-            session,
-            mode="experiment_script",
-            chap_auto_trigger=False,
-        )
-
-        self.assertTrue(payload["chap_enabled"])
-        self.assertFalse(payload["chap_auto_trigger"])
-
-    def test_build_used_prompts_payload_raises_for_missing_chap_auto_trigger(self) -> None:
-        session = create_session(model="openai/gpt-5.3-codex", chap_enabled=True)
-        append_session_event(
-            session,
-            stream="main_agent",
-            tag="initial_system_prompt",
-            message={"role": "system", "content": "system"},
-            iteration=0,
-        )
-        append_session_event(
-            session,
-            stream="main_agent",
-            tag="initial_user_prompt",
-            message={"role": "user", "content": "user"},
-            iteration=0,
-        )
-
-        with self.assertRaisesRegex(ValueError, "chap_auto_trigger"):
-            build_used_prompts_payload(session, mode="experiment_script")
 
     def test_events_capture_all_turns_including_non_executed(self) -> None:
         session = create_session(model="openai/gpt-5.3-codex")
@@ -444,8 +340,11 @@ class SessionStateTests(unittest.TestCase):
             session,
             stream="main_agent",
             tag="framework_command_result",
-            message={"role": "user", "content": "Command executed with exit code 0. Output:\nuid=0"},
-            parsed={"exit_code": 0, "output": "uid=0"},
+            message={
+                "role": "user",
+                "content": "Command executed with exit code 0.\n[STDOUT]\nuid=0\n[STDERR]\n<empty>",
+            },
+            parsed={"exit_code": 0, "stdout": "uid=0", "stderr": "<empty>"},
             iteration=0,
             metadata={"assistant_event_index": assistant_event["event_index"]},
         )
@@ -491,7 +390,7 @@ class ProtocolGenerationTests(unittest.TestCase):
             build_assistant_message("enumerate web", "curl http://target"),
             {
                 "role": "user",
-                "content": "Command executed with exit code 0. Output:\n<html>",
+                "content": "Command executed with exit code 0.\n[STDOUT]\n<html>\n[STDERR]\n<empty>",
             },
         ]
         append_session_event(
@@ -526,7 +425,7 @@ class ProtocolGenerationTests(unittest.TestCase):
             stream="main_agent",
             tag="framework_command_result",
             message=runtime_messages[3],
-            parsed={"exit_code": 0, "output": "<html>"},
+            parsed={"exit_code": 0, "stdout": "<html>", "stderr": "<empty>"},
             iteration=4,
             agent_number=1,
             metadata={"assistant_event_index": assistant_event["event_index"], "included_in_history": True},
@@ -619,6 +518,60 @@ class DiscordNotificationTests(unittest.TestCase):
         self.assertEqual(
             create_embed_mock.call_args.kwargs["description"],
             "Agent provided empty command 5 times consecutively and was stopped",
+        )
+        safe_send_mock.assert_called_once()
+
+    @patch.object(challenge_messages, "_safe_send", return_value=True)
+    @patch.object(challenge_messages, "_create_embed", side_effect=lambda **kwargs: kwargs)
+    def test_send_challenge_complete_message_marks_unvalidated_capture_explicitly(
+        self,
+        create_embed_mock,
+        safe_send_mock,
+    ) -> None:
+        result = challenge_messages.send_challenge_complete_message(
+            channel_id="123456789",
+            challenge="private",
+            result={
+                "flag_captured": "FLAG{captured}",
+                "flag_valid": None,
+                "iterations": 3,
+                "relay_count": 0,
+                "total_cost": 0.5,
+                "total_time": 12.0,
+                "stopping_reason": "agent_exit",
+                "session": {"agent_number": 1},
+            },
+        )
+
+        self.assertTrue(result)
+        self.assertEqual(create_embed_mock.call_args.kwargs["fields"][0]["value"], "ℹ️ Captured (Unvalidated)")
+        safe_send_mock.assert_called_once()
+
+    @patch.object(experiment_messages, "_safe_send", return_value=True)
+    @patch.object(experiment_messages, "_create_embed", side_effect=lambda **kwargs: kwargs)
+    def test_send_experiment_complete_message_includes_unvalidated_count(
+        self,
+        create_embed_mock,
+        safe_send_mock,
+    ) -> None:
+        result = experiment_messages.send_experiment_complete_message(
+            channel_id="123456789",
+            results=[],
+            metadata={
+                "total_challenges": 2,
+                "successful": 0,
+                "unvalidated": 1,
+                "failed": 1,
+                "total_cost": 1.0,
+                "total_time": 20.0,
+                "valid_flags": 0,
+            },
+        )
+
+        self.assertTrue(result)
+        self.assertIn(
+            {"name": "Unvalidated", "value": "📌 1", "inline": True},
+            create_embed_mock.call_args.kwargs["fields"],
         )
         safe_send_mock.assert_called_once()
 

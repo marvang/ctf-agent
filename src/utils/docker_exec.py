@@ -2,6 +2,7 @@
 
 import shlex
 import threading
+from dataclasses import dataclass
 from typing import Any
 
 import docker
@@ -12,7 +13,33 @@ from src.utils.network_utils import find_vpn_interface, get_interface_ipv4
 TIMEOUT_EXIT_CODE = 124
 
 
-def execute_command(container, shell_command: str, timeout_seconds: int) -> tuple[bool, str, int]:
+@dataclass(frozen=True)
+class CommandExecutionResult:
+    """Structured result for a one-shot command execution."""
+
+    success: bool
+    exit_code: int
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+
+def _decode_exec_stream(stream: bytes | None) -> str:
+    """Decode a Docker exec stdout/stderr stream."""
+    if stream is None:
+        return ""
+    return stream.decode("utf-8", errors="replace").strip()
+
+
+def _decode_demux_output(output: Any) -> tuple[str, str]:
+    """Decode Docker exec output from demux mode."""
+    if isinstance(output, tuple):
+        stdout_bytes, stderr_bytes = output
+        return _decode_exec_stream(stdout_bytes), _decode_exec_stream(stderr_bytes)
+    return _decode_exec_stream(output), ""
+
+
+def execute_command(container, shell_command: str, timeout_seconds: int) -> CommandExecutionResult:
     """
     Execute shell command in Docker container
 
@@ -22,17 +49,20 @@ def execute_command(container, shell_command: str, timeout_seconds: int) -> tupl
         timeout_seconds: Timeout in seconds
 
     Returns:
-        Tuple of (success: bool, output: str, exit_code: int)
+        Structured execution result with separated stdout/stderr streams.
     """
-    result: dict[str, Any] = {"exit_code": None, "output": None, "error": None}
+    result: dict[str, Any] = {"exit_code": None, "stdout": "", "stderr": "", "error": None}
 
     def run_command():
         try:
             exit_code, output = container.exec_run(
-                ["bash", "-lc", shell_command], tty=True, stdin=True, environment={"TERM": "xterm-256color"}
+                ["bash", "-lc", shell_command],
+                tty=False,
+                stdin=False,
+                demux=True,
             )
             result["exit_code"] = exit_code
-            result["output"] = output.decode().strip()
+            result["stdout"], result["stderr"] = _decode_demux_output(output)
         except Exception as e:
             result["error"] = e
 
@@ -48,33 +78,39 @@ def execute_command(container, shell_command: str, timeout_seconds: int) -> tupl
             pass
 
         print(f"\n⏱️  Command timed out after {timeout_seconds} seconds")
-        return (
-            False,
-            f"TIMEOUT: Command exceeded {timeout_seconds}s limit. Try a different approach.",
-            TIMEOUT_EXIT_CODE,
+        return CommandExecutionResult(
+            success=False,
+            exit_code=TIMEOUT_EXIT_CODE,
+            stdout="",
+            stderr=f"TIMEOUT: Command exceeded {timeout_seconds}s limit. Try a different approach.",
+            timed_out=True,
         )
 
     if result["error"]:
         if isinstance(result["error"], docker.errors.NotFound):
-            error_msg = "❌ Docker container 'kali-linux' not found"
+            error_msg = f"❌ Docker container '{container.name}' not found"
             print(error_msg)
-            return False, error_msg, -1
+            return CommandExecutionResult(success=False, exit_code=-1, stdout="", stderr=error_msg)
         error_msg = f"❌ Error: {result['error']}"
         print(error_msg)
-        return False, error_msg, -1
+        return CommandExecutionResult(success=False, exit_code=-1, stdout="", stderr=error_msg)
 
     exit_code = result["exit_code"] if result["exit_code"] is not None else -1
-    success = exit_code == 0
-    return success, result["output"] or "", exit_code
+    return CommandExecutionResult(
+        success=exit_code == 0,
+        exit_code=exit_code,
+        stdout=result["stdout"],
+        stderr=result["stderr"],
+    )
 
 
 def cleanup_tmux_session(container) -> None:
     """Kill all tmux sessions in the container."""
     try:
-        exit_code, _output = container.exec_run(["bash", "-lc", "tmux list-sessions 2>/dev/null"], tty=True)
+        exit_code, _output = container.exec_run(["bash", "-lc", "tmux list-sessions 2>/dev/null"], tty=False)
 
         if exit_code == 0:
-            container.exec_run(["bash", "-lc", "tmux kill-server"], tty=True)
+            container.exec_run(["bash", "-lc", "tmux kill-server"], tty=False)
             print("🧹 Cleaned up all tmux sessions")
     except Exception:
         pass

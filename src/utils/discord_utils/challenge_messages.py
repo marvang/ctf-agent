@@ -56,7 +56,7 @@ def send_challenge_complete_message(channel_id, challenge: str, result: dict[str
         challenge: Challenge name
         result: Challenge result dict with keys:
             - flag_captured: String or None
-            - flag_valid: Boolean
+            - flag_valid: Boolean or None when validation is intentionally skipped
             - iterations: Int
             - relay_count: Int
             - total_cost: Float
@@ -91,7 +91,7 @@ def send_challenge_complete_message(channel_id, challenge: str, result: dict[str
 
     # Extract result values
     flag_captured = result.get("flag_captured")
-    flag_valid = result.get("flag_valid", False)
+    flag_valid = result.get("flag_valid")
     iterations = result.get("iterations", 0)
     relay_count = result.get("relay_count", 0)
     total_cost = result.get("total_cost", 0.0)
@@ -109,6 +109,10 @@ def send_challenge_complete_message(channel_id, challenge: str, result: dict[str
         status = "✅ Success"
         color = discord.Color.green()
         title_emoji = "🎉"
+    elif flag_valid is None and flag_captured:
+        status = "ℹ️ Captured (Unvalidated)"
+        color = discord.Color.blue()
+        title_emoji = "📌"
     elif flag_captured:
         status = "⚠️ Invalid Flag"
         color = discord.Color.orange()
