@@ -5,18 +5,19 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import main
-import scripts.run_experiment as run_experiment
 import src.experiment_utils.docker_ops as docker_ops
 import src.experiment_utils.main_experiment_agent as experiment_agent
 import src.utils.docker_utils as docker_utils
 from src.config.constants import KALI_CONTAINER_NAME
+from src.config.workspace import SHARED_VPN_DIR
 
 
 class KaliContainerConfigTests(unittest.TestCase):
-    def test_shared_kali_container_name_is_used_across_entrypoints(self) -> None:
-        self.assertEqual(main.KALI_CONTAINER_NAME, KALI_CONTAINER_NAME)
-        self.assertEqual(run_experiment.KALI_CONTAINER_NAME, KALI_CONTAINER_NAME)
+    def test_session_runtime_kali_names_derive_from_shared_constant(self) -> None:
+        from src.config.session_runtime import resolve_session_runtime
+
+        runtime = resolve_session_runtime("test-shared")
+        self.assertTrue(runtime.kali_container_name.startswith(KALI_CONTAINER_NAME))
 
     def test_helper_defaults_use_shared_kali_container_name(self) -> None:
         self.assertEqual(
@@ -113,6 +114,7 @@ services:
             )
 
             expected_mount = f"{workspace_path.resolve()}:/ctf-workspace"
+            expected_vpn_mount = f"{Path(SHARED_VPN_DIR).resolve()}:/ctf-workspace/vpn"
 
         self.assertTrue(result)
         docker_run_command = run_mock.call_args_list[1].args[0]
@@ -122,6 +124,7 @@ services:
         self.assertIn("/ctf-workspace", docker_run_command)
         self.assertIn("-v", docker_run_command)
         self.assertIn(expected_mount, docker_run_command)
+        self.assertIn(expected_vpn_mount, docker_run_command)
 
 
 class StopKaliContainerTests(unittest.TestCase):

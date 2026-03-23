@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import Mock
 
 from src.utils.docker_exec import get_container_ips
-from src.utils.vpn import connect_vpn
+from src.utils.vpn import connect_vpn, select_vpn_connect_script
 
 
 class ContainerIpTests(unittest.TestCase):
@@ -34,6 +34,27 @@ class ConnectVpnTests(unittest.TestCase):
         connected = connect_vpn(container, environment="private")
 
         self.assertFalse(connected)
+
+
+class SelectVpnScriptTests(unittest.TestCase):
+    def test_select_vpn_script_accepts_explicit_match(self) -> None:
+        script = select_vpn_connect_script(["alpha.sh", "beta.sh"], "beta.sh")
+
+        self.assertEqual(script, "beta.sh")
+
+    def test_select_vpn_script_ignores_disconnect_helpers(self) -> None:
+        script = select_vpn_connect_script(["connect-htb.sh", "disconnect-htb.sh"])
+
+        self.assertEqual(script, "connect-htb.sh")
+
+    def test_select_vpn_script_returns_only_script_when_unambiguous(self) -> None:
+        script = select_vpn_connect_script(["vpn-connect.sh"])
+
+        self.assertEqual(script, "vpn-connect.sh")
+
+    def test_select_vpn_script_raises_when_multiple_scripts_exist(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Specify --vpn-script explicitly"):
+            select_vpn_connect_script(["alpha.sh", "beta.sh"])
 
 
 if __name__ == "__main__":

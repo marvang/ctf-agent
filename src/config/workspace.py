@@ -1,11 +1,11 @@
 """Shared workspace paths and cleanup configuration."""
 
-import shutil
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 WORKSPACE_DIR = str(_PROJECT_ROOT / "ctf-workspace")
+SHARED_VPN_DIR = str(_PROJECT_ROOT / "ctf-workspace" / "vpn")
 SESSION_WORKSPACES_ROOT = _PROJECT_ROOT / "ctf-workspaces"
 CONTAINER_WORKSPACE_DIR = "/ctf-workspace"
 WORKSPACE_FILES_TO_EMPTY = [
@@ -26,19 +26,9 @@ def get_workspace_dir(normalized_id: str | None = None) -> str:
 
 
 def ensure_workspace_dir(workspace_dir: str) -> str:
-    """Create a workspace directory and seed shared VPN material when isolated."""
+    """Create a workspace directory if needed and return its path."""
     workspace_root = Path(workspace_dir)
     workspace_root.mkdir(parents=True, exist_ok=True)
-
-    default_workspace = Path(WORKSPACE_DIR)
-    vpn_source = default_workspace / "vpn"
-    vpn_target = workspace_root / "vpn"
-    if workspace_root != default_workspace and vpn_source.exists() and not vpn_target.exists():
-        try:
-            vpn_target.symlink_to(vpn_source, target_is_directory=True)
-        except OSError:
-            shutil.copytree(vpn_source, vpn_target, dirs_exist_ok=True)
-
     return str(workspace_root)
 
 

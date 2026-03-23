@@ -18,10 +18,11 @@ ctf-workspaces/
 !ctf-workspace/vpn/htb/disconnect-htb.sh
 !ctf-workspace/vpn/private/vpn-connect.sh
 !ctf-workspace/vpn/private/README.md
-AGENTS.md
-CLAUDE.md
-.claude/
 ctf-experiment-runner/
 results/
-todo.md
 context_for_execution_model_change.txt
+.claude/*
+!.claude/settings.json
+.claude/settings.local.json
+.claude/worktrees/
+uv.lock

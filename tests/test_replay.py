@@ -24,7 +24,7 @@ class ReplayHelperTests(unittest.TestCase):
         command_message = build_assistant_message("enumerate", "id")
         result_message = {
             "role": "user",
-            "content": "Command executed with exit code 0. Output:\nuid=0",
+            "content": "Command executed with exit code 0.\n[STDOUT]\nuid=0\n[STDERR]\n<empty>",
         }
 
         append_session_event(
@@ -55,7 +55,7 @@ class ReplayHelperTests(unittest.TestCase):
             stream="main_agent",
             tag="framework_command_result",
             message=result_message,
-            parsed={"exit_code": 0, "output": "uid=0"},
+            parsed={"exit_code": 0, "stdout": "uid=0", "stderr": "<empty>"},
             iteration=0,
             metadata={"assistant_event_index": assistant_event["event_index"], "included_in_history": True},
         )
@@ -106,7 +106,7 @@ class ReplayHelperTests(unittest.TestCase):
             build_assistant_message("enumerate web", "curl http://target"),
             {
                 "role": "user",
-                "content": "Command executed with exit code 0. Output:\n<html>",
+                "content": "Command executed with exit code 0.\n[STDOUT]\n<html>\n[STDERR]\n<empty>",
             },
         ]
         append_session_event(
@@ -141,7 +141,7 @@ class ReplayHelperTests(unittest.TestCase):
             stream="main_agent",
             tag="framework_command_result",
             message=runtime_messages[3],
-            parsed={"exit_code": 0, "output": "<html>"},
+            parsed={"exit_code": 0, "stdout": "<html>", "stderr": "<empty>"},
             iteration=4,
             agent_number=1,
             metadata={"assistant_event_index": assistant_event["event_index"], "included_in_history": True},

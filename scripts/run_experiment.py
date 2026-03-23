@@ -19,7 +19,11 @@ from datetime import datetime
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.config.constants import KALI_CONTAINER_NAME, LOCAL_CHALLENGES_ROOT_STR
+from src.config.constants import (
+    ARTIFACT_SCHEMA_VERSION,
+    LOCAL_CHALLENGES_ROOT_STR,
+    MAX_OUTPUT_LENGTH,
+)
 from src.config.experiment_custom_instructions import (
     DEFAULT_CUSTOM_INSTRUCTIONS,
     REAL_CHALLENGE_CUSTOM_INSTRUCTIONS,
@@ -29,12 +33,9 @@ from src.config.session_runtime import SessionRuntime, resolve_session_runtime
 from src.config.workspace import ensure_workspace_dir
 from src.experiment_utils.docker_ops import (
     start_challenge_container_standalone,
-    start_container,
-    start_kali_container,
     start_kali_container_standalone,
     start_network,
     stop_challenge_container_standalone,
-    stop_container,
     stop_kali_container,
     stop_network,
 )
@@ -54,27 +55,25 @@ from src.utils.discord_utils import (
 )
 from src.utils.docker_utils import connect_to_docker
 from src.utils.environment import EnvironmentType, LocalArch, uses_vpn
-from src.utils.git import get_git_commit_hash
-from src.utils.state_manager import (
-    build_used_prompts_payload,
-    persist_session,
-)
-from src.utils.vpn import connect_vpn, disconnect_vpn, discover_vpn_scripts
+from src.utils.git import build_git_provenance
+from src.utils.run_ids import generate_run_id
+from src.utils.state_manager import persist_session
+from src.utils.vpn import connect_vpn, disconnect_vpn, discover_vpn_scripts, select_vpn_connect_script
 
 # EXPERIMENT CONFIGURATION
 
 # --- Shared settings ---
 
-TEST_RUN = False  # Set to True only for test runs. For local: gives agent solutions. For VPN: no-op until hints JSON is added.
+TEST_RUN = True  # Set to True only for test runs. For local: gives agent solutions. Blocked for VPN (no test hints exist).
 USE_CUSTOM_INSTRUCTIONS = True  # Enable/disable per-challenge custom instructions. Recommended to keep True.
 CHALLENGE_CUSTOM_INSTRUCTIONS = TEST_CHALLENGE_CUSTOM_INSTRUCTIONS if TEST_RUN else REAL_CHALLENGE_CUSTOM_INSTRUCTIONS
 
-MODEL_NAME = "anthropic/claude-sonnet-4.6"
+MODEL_NAME = "xiaomi/mimo-v2-pro"
+# Model names for quick access: anthropic/claude-sonnet-4.6, anthropic/claude-opus-4.6, openai/gpt-5.4-mini, minimax/minimax-m2.5:free, minimax/minimax-m2.7, cognitivecomputations/dolphin-mistral-24b-venice-edition:free, xiaomi/mimo-v2-pro
 CHAP_ENABLED = False
 MAX_ITERATIONS = 100
 COMMAND_TIMEOUT = 220
 MAX_COST = 5
-MAX_OUTPUT_LENGTH = 12000
 
 # CHAP prompt token thresholds (only used if CHAP enabled)
 # Threshold increases per agent: threshold = BASE + (agent_number * INCREMENT)
@@ -87,32 +86,33 @@ CHAP_MIN_ITERATIONS_FOR_RELAY = 30  # Minimum iterations before manual relay is 
 
 DISCORD_NOTIFICATIONS_ENABLED = True  # Set to False, to enable you need to set DISCORD_MAIN_BOT_TOKEN and DISCORD_GUILD_ID in .env which you can get from your Discord developer portal after creating an application and bot
 RESULTS_DIR = "./results"
-EXPERIMENT_SET_NAME = "default"
+EXPERIMENT_SET_NAME = "pre-commit-smoke"
 ENVIRONMENT_MODE: EnvironmentType = "local"  # "local", "private", or "htb"
 
 # --- Local Docker mode ---
 
 CTF_CHALLENGES = [
-    # "vm0",
+    "vm0",
     "vm1",
-    # "vm2",
-    # "vm3",
-    # "vm4",
-    # "vm5",
-    # "vm6",
-    # "vm7",
-    # "vm8",
-    # "vm9",
-    # "vm10",
+    "vm2",
+    "vm3",
+    "vm4",
+    "vm5",
+    "vm6",
+    "vm7",
+    "vm8",
+    "vm9",
+    "vm10",
 ]
 LOCAL_FLAG_DIR = LOCAL_CHALLENGES_ROOT_STR  # Directory containing per-challenge flag.txt files
 LOCAL_ARCH: LocalArch = "aarch64"  # Architecture-specific prompt selection for local challenge runs
-SERVICE_STARTUP_DELAY = 30
+SERVICE_STARTUP_DELAY = 30 # Only for local mode.
 
 # --- VPN/Remote mode ---
 
-VPN_TARGET_IP = ""  # Single target IP address for VPN mode (e.g., "10.0.2.88")
-VPN_FLAGS_FILE: str | None = None  # Path to flags JSON file for VPN mode validation
+VPN_TARGET_IP = "10.0.2.88"  # Single target IP address for VPN mode (e.g., "10.0.2.88")
+VPN_FLAGS_FILE: str | None = "flags_example.json"  # Path to flags JSON file for VPN mode validation
+VPN_CONNECT_SCRIPT: str | None = None
 
 
 def parse_args():
@@ -169,6 +169,7 @@ def parse_args():
     parser.add_argument(
         "--vpn-flags-file", type=str, default=None, help="Path to flags JSON file for validation (VPN mode)"
     )
+    parser.add_argument("--vpn-script", type=str, default=None, help="Explicit VPN connect script for VPN mode")
 
     return parser.parse_args()
 
@@ -177,7 +178,7 @@ def apply_cli_overrides(args):
     """Apply CLI arguments to global config variables."""
     global CHAP_ENABLED, EXPERIMENT_SET_NAME, CHAP_TOKEN_LIMIT_BASE
     global MODEL_NAME, CHAP_TOKEN_LIMIT_INCREMENT, CHAP_AUTO_TRIGGER
-    global VPN_TARGET_IP, ENVIRONMENT_MODE, VPN_FLAGS_FILE
+    global VPN_TARGET_IP, ENVIRONMENT_MODE, VPN_FLAGS_FILE, VPN_CONNECT_SCRIPT
 
     if args.chap_enabled is not None:
         CHAP_ENABLED = args.chap_enabled
@@ -198,6 +199,8 @@ def apply_cli_overrides(args):
         VPN_TARGET_IP = args.target_ip
     if args.vpn_flags_file is not None:
         VPN_FLAGS_FILE = args.vpn_flags_file
+    if args.vpn_script is not None:
+        VPN_CONNECT_SCRIPT = args.vpn_script
 
 
 def get_custom_instructions_for_challenge(challenge_name: str) -> str:
@@ -237,8 +240,8 @@ def save_results(
             challenge: get_custom_instructions_for_challenge(challenge) for challenge in challenges
         }
     experiment_metadata = {
+        "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
         "timestamp": timestamp,
-        "git_commit_hash": get_git_commit_hash(),
         "local_flag_dir": LOCAL_FLAG_DIR,
         "challenges": challenges,
         "model": MODEL_NAME,
@@ -247,6 +250,7 @@ def save_results(
         "completed_challenges": len(results),
         "max_iterations": MAX_ITERATIONS,
         "command_timeout_seconds": COMMAND_TIMEOUT,
+        "max_output_length": MAX_OUTPUT_LENGTH,
         "max_cost": MAX_COST,
         "test_run": TEST_RUN,
         "use_custom_instructions": USE_CUSTOM_INSTRUCTIONS,
@@ -262,15 +266,16 @@ def save_results(
         "target_ip": VPN_TARGET_IP if uses_vpn(ENVIRONMENT_MODE) else None,
         "vpn_flags_file": VPN_FLAGS_FILE,
         "vpn_connect_script": vpn_connect_script,
-        "default_kali_container_name": KALI_CONTAINER_NAME,
         "kali_container_name": session_runtime.kali_container_name,
         "session_id": session_runtime.session_id,
         "network_name": session_runtime.network_name,
+        "subnet": session_runtime.subnet,
         "workspace_dir": os.path.abspath(session_runtime.workspace_dir),
         "results_dir": os.path.abspath(results_dir),
         "termination_reason": termination_reason or "unknown",
         "use_amd64_prompt": LOCAL_ARCH == "amd64",
     }
+    experiment_metadata.update(build_git_provenance())
 
     for result in results:
         challenge_dir = os.path.join(experiment_dir, result["challenge_name"])
@@ -278,7 +283,10 @@ def save_results(
 
         # Save summary data for the challenge (without the heavy session log)
         # Note: custom_instructions available in experiment_summary.json under custom_instructions_by_challenge
-        challenge_summary = {k: v for k, v in result.items() if k != "session"}
+        challenge_summary = {
+            "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
+            **{k: v for k, v in result.items() if k != "session"},
+        }
         challenge_path = os.path.join(challenge_dir, "summary.json")
         with open(challenge_path, "w") as f:
             json.dump(challenge_summary, f, indent=2)
@@ -287,16 +295,6 @@ def save_results(
         if session_data:
             session_path = os.path.join(challenge_dir, "session.json")
             persist_session(session_data, session_path)
-
-            prompt_payload = build_used_prompts_payload(
-                session_data,
-                mode="experiment_script",
-                challenge_name=result.get("challenge_name"),
-            )
-            prompt_path = os.path.join(challenge_dir, "used_prompts.json")
-            with open(prompt_path, "w") as f:
-                json.dump(prompt_payload, f, indent=2)
-                f.write("\n")
 
     # Write overall experiment summary for quick inspection
     summary_path = os.path.join(experiment_dir, "experiment_summary.json")
@@ -311,7 +309,7 @@ def main():
     # Parse CLI args and apply overrides
     args = parse_args()
     apply_cli_overrides(args)
-    session_runtime = resolve_session_runtime(args.session_id)
+    session_runtime = resolve_session_runtime(args.session_id, auto_prefix=EXPERIMENT_SET_NAME)
     ensure_workspace_dir(session_runtime.workspace_dir)
 
     is_local = ENVIRONMENT_MODE == "local"
@@ -333,14 +331,11 @@ def main():
         print(f"Target: {VPN_TARGET_IP}")
         if VPN_FLAGS_FILE:
             print(f"Flags file: {VPN_FLAGS_FILE}")
-    if TEST_RUN and not is_local:
-        print("⚠️  TEST_RUN enabled but no test hints available for VPN mode yet")
     print(f"Experiment name: {EXPERIMENT_SET_NAME}")
-    if session_runtime.isolated:
-        print(f"Session ID: {session_runtime.session_id}")
-        print(f"Kali container: {session_runtime.kali_container_name}")
-        print(f"Network: {session_runtime.network_name} ({session_runtime.subnet})")
-        print(f"Workspace: {session_runtime.workspace_dir}")
+    print(f"Session ID: {session_runtime.session_id}")
+    print(f"Kali container: {session_runtime.kali_container_name}")
+    print(f"Network: {session_runtime.network_name} ({session_runtime.subnet})")
+    print(f"Workspace: {session_runtime.workspace_dir}")
     print("=" * 80)
 
     # Validate VPN configuration
@@ -358,12 +353,10 @@ def main():
             print("  For IP ranges or extra target info, use custom instructions instead.")
             sys.exit(1)
 
-    # Network setup
-    print(f"\n🌐 Ensuring Docker network '{session_runtime.network_name}' is available...")
-    if session_runtime.isolated:
-        start_network(session_runtime.network_name, session_runtime.subnet)
-    else:
-        start_network()
+    if TEST_RUN and not is_local:
+        print(f"ERROR: TEST_RUN=True is not supported for environment '{ENVIRONMENT_MODE}'.")
+        print("  Test hints do not exist for VPN/remote targets. Set TEST_RUN=False or use --environment local.")
+        sys.exit(1)
 
     # VPN mode: start Kali, connect VPN before the challenge loop
     vpn_container = None
@@ -371,7 +364,7 @@ def main():
     flag_entries: list = []
     challenges_to_run = CTF_CHALLENGES if is_local else [EXPERIMENT_SET_NAME]
     results: list = []
-    experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    experiment_id = generate_run_id()
     discord_experiment_id = f"{EXPERIMENT_SET_NAME}-{experiment_id}" if EXPERIMENT_SET_NAME else experiment_id
     results_dir = os.path.join(RESULTS_DIR, EXPERIMENT_SET_NAME) if EXPERIMENT_SET_NAME else RESULTS_DIR
     experiment_dir = os.path.join(results_dir, f"experiment_{experiment_id}")
@@ -381,15 +374,19 @@ def main():
     channel_id = None
 
     try:
+        print(f"\n🌐 Ensuring Docker network '{session_runtime.network_name}' is available...")
+        session_runtime.subnet = start_network(
+            session_runtime.network_name,
+            session_runtime.subnet or "",
+            subnet_candidates=session_runtime.subnet_candidates,
+        )
+
         if not is_local:
-            if session_runtime.isolated:
-                kali_ok = start_kali_container_standalone(
-                    session_runtime.kali_container_name,
-                    session_runtime.network_name,
-                    session_runtime.workspace_dir,
-                )
-            else:
-                kali_ok = start_kali_container(session_runtime.kali_container_name)
+            kali_ok = start_kali_container_standalone(
+                session_runtime.kali_container_name,
+                session_runtime.network_name,
+                session_runtime.workspace_dir,
+            )
             if not kali_ok:
                 raise RuntimeError("Failed to start Kali container")
             _, vpn_container = connect_to_docker(session_runtime.kali_container_name)
@@ -397,8 +394,8 @@ def main():
                 raise RuntimeError("Failed to get Kali container handle")
 
             scripts = discover_vpn_scripts(vpn_container, ENVIRONMENT_MODE)
-            if scripts:
-                vpn_connect_script = scripts[0]
+            vpn_connect_script = select_vpn_connect_script(scripts, VPN_CONNECT_SCRIPT)
+            if vpn_connect_script:
                 print(f"🔌 Using VPN connect script: {vpn_connect_script}")
 
             if not connect_vpn(vpn_container, ENVIRONMENT_MODE, vpn_connect_script):
@@ -438,6 +435,7 @@ def main():
             print(f"Challenge {idx}/{total_challenges}: {challenge}")
             print(f"{'=' * 80}")
             challenge_container_name = session_runtime.challenge_container_name(challenge) if is_local else None
+            target_ip = ""
 
             send_challenge_start_message(channel_id=channel_id, challenge=challenge, index=idx, total=total_challenges)
 
@@ -445,14 +443,11 @@ def main():
                 if is_local:
                     # Start vulnerable container
                     print(f"\n📦 Starting vulnerable container: {challenge}")
-                    if session_runtime.isolated:
-                        target_ip = start_challenge_container_standalone(
-                            challenge_name=challenge,
-                            container_name=challenge_container_name,
-                            network_name=session_runtime.network_name,
-                        )
-                    else:
-                        target_ip = start_container(challenge)
+                    target_ip = start_challenge_container_standalone(
+                        challenge_name=challenge,
+                        container_name=challenge_container_name,
+                        network_name=session_runtime.network_name,
+                    )
                     print(f"✅ Container started at {target_ip}")
 
                     current_time = datetime.now().strftime("%H:%M:%S %Y-%m-%d")
@@ -467,15 +462,11 @@ def main():
 
                 # In local mode, start Kali per-challenge. In VPN mode it's already running.
                 if is_local:
-                    if session_runtime.isolated:
-                        kali_ok = start_kali_container_standalone(
-                            session_runtime.kali_container_name,
-                            session_runtime.network_name,
-                            session_runtime.workspace_dir,
-                        )
-                    else:
-                        kali_ok = start_kali_container(session_runtime.kali_container_name)
-
+                    kali_ok = start_kali_container_standalone(
+                        session_runtime.kali_container_name,
+                        session_runtime.network_name,
+                        session_runtime.workspace_dir,
+                    )
                     if not kali_ok:
                         send_docker_connection_error_message(
                             channel_id=channel_id,
@@ -542,10 +533,17 @@ def main():
                     session_path=os.path.join(challenge_dir, "session.json"),
                     workspace_dir=session_runtime.workspace_dir,
                     environment_mode=ENVIRONMENT_MODE,
+                    session_id=session_runtime.session_id,
+                    network_name=session_runtime.network_name,
+                    subnet=session_runtime.subnet,
+                    artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
+                    vpn_connect_script=vpn_connect_script,
                 )
 
                 result["challenge_name"] = challenge
                 result["mode"] = "experiment_script"
+                result["target_ip"] = result.get("target_ip") or target_ip
+                result["environment_mode"] = result.get("environment_mode") or ENVIRONMENT_MODE
 
                 captured_flag = result.get("flag_captured") or ""
 
@@ -578,6 +576,8 @@ def main():
                 print(f"{'=' * 80}")
 
                 send_challenge_complete_message(channel_id=channel_id, challenge=challenge, result=result)
+                if result.get("interrupted_by_user"):
+                    raise KeyboardInterrupt
 
             except Exception as e:
                 print(f"\n❌ Error running experiment for {challenge}: {e}")
@@ -593,6 +593,8 @@ def main():
                     {
                         "mode": "experiment_script",
                         "challenge_name": challenge,
+                        "target_ip": target_ip if "target_ip" in locals() else VPN_TARGET_IP,
+                        "environment_mode": ENVIRONMENT_MODE,
                         "flag_captured": None,
                         "session": None,
                         "iterations": 0,
@@ -615,10 +617,7 @@ def main():
                 if is_local:
                     stop_kali_container(session_runtime.kali_container_name)
                     print(f"🧹 Stopping vulnerable container: {challenge}")
-                    if session_runtime.isolated:
-                        stop_challenge_container_standalone(challenge_container_name)
-                    else:
-                        stop_container(challenge)
+                    stop_challenge_container_standalone(challenge_container_name)
 
             save_results(
                 results, results_dir, session_runtime, challenges_to_run,
@@ -696,12 +695,8 @@ def main():
                 disconnect_vpn(vpn_container, ENVIRONMENT_MODE, vpn_connect_script)
             stop_kali_container(session_runtime.kali_container_name)
 
-        if is_local or session_runtime.isolated:
-            print(f"\n🛑 Stopping Docker network '{session_runtime.network_name}'...")
-            if session_runtime.isolated:
-                stop_network(session_runtime.network_name)
-            else:
-                stop_network()
+        print(f"\n🛑 Stopping Docker network '{session_runtime.network_name}'...")
+        stop_network(session_runtime.network_name)
         print("Exit.")
 
 

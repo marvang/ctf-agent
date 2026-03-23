@@ -12,6 +12,7 @@ from src.config.constants import (
     get_local_challenge_container_name,
     get_session_challenge_name,
     get_session_network_name,
+    get_session_subnet_candidates,
     get_session_subnet_from_id,
     normalize_session_id,
 )
@@ -37,13 +38,27 @@ class LocalChallengesTests(unittest.TestCase):
         normalized = normalize_session_id(session_id)
 
         self.assertEqual(normalized, "review-session-6")
-        self.assertEqual(get_session_network_name(normalized), "target_net_review-sessi")
-        self.assertEqual(get_session_challenge_name("vm3", normalized), "vm3-review-sessi")
+        self.assertEqual(get_session_network_name(normalized), "target_net_review-session-6-28ee4f47")
+        self.assertEqual(get_session_challenge_name("vm3", normalized), "vm3-review-session-6-28ee4f47")
+
+    def test_auto_generated_session_resource_names_preserve_numeric_suffix(self) -> None:
+        first_run = get_session_network_name("pre-commit-smoke-1", use_hash=False)
+        tenth_run = get_session_network_name("pre-commit-smoke-10", use_hash=False)
+
+        self.assertEqual(first_run, "target_net_pre-commit-smoke-1")
+        self.assertEqual(tenth_run, "target_net_pre-commit-smok-10")
+        self.assertNotEqual(first_run, tenth_run)
 
     def test_session_subnets_use_separate_private_range(self) -> None:
         subnet = get_session_subnet_from_id("parallel-run")
 
         self.assertRegex(subnet, r"^10\.\d+\.\d+\.0/24$")
+
+    def test_session_subnet_candidates_offer_fallbacks(self) -> None:
+        candidates = get_session_subnet_candidates("parallel-run")
+
+        self.assertGreater(len(candidates), 1)
+        self.assertEqual(len(candidates), len(set(candidates)))
 
 
 class LocalChallengeDockerLifecycleTests(unittest.TestCase):
@@ -162,3 +177,41 @@ class LocalChallengeDockerLifecycleTests(unittest.TestCase):
         self.assertIn("bash", docker_run_command)
         self.assertIn("-c", docker_run_command)
         self.assertNotIn("-p", docker_run_command)
+
+
+class NetworkLifecycleTests(unittest.TestCase):
+    @patch.object(docker_ops.subprocess, "run")
+    def test_start_network_uses_fallback_subnet_on_overlap(self, run_mock) -> None:
+        run_mock.side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=1),
+            subprocess.CalledProcessError(
+                1,
+                ["docker", "network", "create"],
+                stderr="Pool overlaps with other one on this address space",
+            ),
+            subprocess.CompletedProcess(args=[], returncode=0),
+        ]
+
+        subnet = docker_ops.start_network(
+            network_name="target_net_session",
+            subnet="10.210.0.0/24",
+            subnet_candidates=["10.211.0.0/24"],
+        )
+
+        self.assertEqual(subnet, "10.211.0.0/24")
+
+    @patch.object(docker_ops.subprocess, "run")
+    def test_stop_network_leaves_active_endpoints_attached(self, run_mock) -> None:
+        run_mock.side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0),
+            subprocess.CompletedProcess(
+                args=[],
+                returncode=1,
+                stdout="",
+                stderr="Error response from daemon: network has active endpoints",
+            ),
+        ]
+
+        docker_ops.stop_network("target_net_session")
+
+        self.assertEqual(len(run_mock.call_args_list), 2)
