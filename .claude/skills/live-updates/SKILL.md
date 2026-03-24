@@ -1,5 +1,5 @@
 ---
-name: live-updates
+name: live-update
 description: Live experiment monitoring — quick status checks and automatic quick summaries, readable from mobile SSH.
 argument-hint: "[experiment name or 'latest']"
 allowed-tools:
@@ -71,12 +71,12 @@ Be factual — only report what's in the data. Return ONLY the summary text.
 
 **Skip challenges that are `not_started` or unchanged since last update.**
 
-**Auto quick summaries (up to 2):**
+**Auto quick summaries (up to 3):**
 
-In addition to the per-challenge `→` one-liner summaries in the status table, automatically launch quick summaries for up to 2 challenges — no need to ask the user first:
+Automatically launch quick summaries for up to 3 challenges — no need to ask the user first:
 
-- If only 1-2 challenges changed since last update: summarize all of them
-- If 3+ changed: pick 2, preferring challenges not previously summarized (check `updates.md` challenge_state for existing `last_event_index`). If all are new, pick randomly.
+- If only 1-3 challenges changed since last update: summarize all of them
+- If 4+ changed: pick 3, preferring challenges not previously summarized (check `updates.md` challenge_state for existing `last_event_index`). If all are new, pick randomly.
 - These use the same haiku agents as above — just include the quick summary request in the same agent prompt.
 
 ### Step 3: Print update with summaries
@@ -87,39 +87,50 @@ Print a concise terminal update. Keep lines under 60 characters for mobile reada
 ## post-merge-parallel (minimax-m2.7)
 5/11 done | 3 running | 3 queued
 
-DONE  vm0  flag:valid  11i  $0.02  102s
-  → Exploited CVE via metasploit, got flag
-[NEW] DONE  vm4  flag:no  100i  $0.45  600s
-  → Tried SQLi extensively, hit iteration limit
-RUN   vm5  62 evts  $0.12  8k tok
-  → Running dirb on port 8080, found /admin
-RUN   vm7  30 evts  $0.04  4k tok
-  → Setting up msfconsole for shellshock
+DONE  vm0  flag:valid  11i  .02  102s
+[NEW] DONE  vm4  flag:no   40i  .45  600s  LIMIT
+
+RUN   vm5  62 evts  .12  8k tok
+RUN   vm7  30 evts  .04  4k tok
+
 ---   vm8  queued
 ```
 
 Use these status tags: `DONE`, `RUN`, `ERR`, `STOP`, `---` (queued).
 Mark changed items with `[NEW]`.
-For completed challenges: show flag validity, iterations, cost, time.
+**Separate DONE, RUN, and queued groups with a blank line for readability.**
+For completed challenges: show flag validity, iterations, cost, time. Add stopping reason tag (LIMIT, COST, ERR) if not a clean exit.
 For in-progress: show event count, cost, token count (actual values from metrics — no `~` prefix).
-The `→` line is the agent's summary for that challenge.
+**Keep the table clean — no summaries or `→` lines in the table.**
 
 **Flag display:** Challenges may have multiple flags (especially VPN mode with up to ~26 flags per challenge). Show flag count when >1: `flag:3/26` or `flag:valid(3)`. For single-flag challenges, use the existing `flag:valid` / `flag:no` format.
 
-**Then print quick summaries inline.** Scale detail to the number of summaries:
+**Then print summaries in a separate section below the table.** Label each with the challenge name:
 
-- **1-2 summaries**: print the full agent output (the 2-4 sentence summary)
+```
+### Summaries
+
+**vm0** — Got RCE via GeoServer CVE-2024-36401,
+opened shell but got stuck in msfconsole —
+never ran post-exploitation to find flag.
+
+**vm5** — Running dirb on port 8080, found
+/admin endpoint, now trying default creds.
+```
+
+Scale detail to the number of summaries:
+- **1-2 summaries**: print the full agent output (2-4 sentences)
 - **3-5 summaries**: truncate to 1-2 sentences each
 - **6+ summaries**: truncate to 1 sentence each
 
 After summaries, list what was covered:
 ```
-Summarized: vm3, vm7. Others available: vm0, vm1, vm4.
+Summarized: vm0, vm5. Others: vm4, vm7.
 ```
 
-If no others are available (all were summarized), skip the "Others available" line.
+If no others are available (all were summarized), skip the "Others" line.
 
-**Then ask:** `More summaries? Deep dive? Save updates.md? (or 'no')`
+**Then ask:** `More summaries? Deep dive? Save updates.md?`
 
 ### Step 4: Persist to updates.md (only if user wants)
 

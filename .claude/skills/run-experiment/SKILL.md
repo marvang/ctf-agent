@@ -19,7 +19,7 @@ The user wants to set up a CTF experiment. Your job is to configure `scripts/run
 In a single message, run all three in parallel:
 
 1. `uv run python scripts/experiment_status.py --changes-since-last` — returns JSON with:
-   - `timeline` — up to 50 recent commits + last 3 experiments (oldest-first, chronological)
+   - `timeline` — up to 50 recent commits + last 5 experiments (oldest-first, chronological)
    - `older_commit_count` / `older_commit_messages` — commits older than the 50 shown
    - `since_last.commits` — commits after the latest experiment
    - `since_last.uncommitted_stat` — git diff stat + untracked files (lockfiles excluded)
@@ -27,20 +27,13 @@ In a single message, run all three in parallel:
 
 2. Read `scripts/run_experiment.py` lines 74-135 for current constants.
 
-3. **Spawn a Haiku subagent** to summarize actual code changes. The agent runs the diff commands itself and returns a brief summary — keeps the diff out of main context. Prompt:
+3. **Spawn a Haiku subagent** to summarize code changes. Use `model: "haiku"`. The agent runs ONE combined bash command and returns a 2-3 sentence summary. Prompt:
    ```
-   Run these commands and return a 2-3 sentence summary of what changed in the code.
+   Run this single command and return a 2-3 sentence summary of what changed.
    Focus on behavioral changes, not formatting. Be very concise.
 
-   git status --short
-   git diff HEAD -- ':!uv.lock' ':!*.lock' ':!package-lock.json'
-   git diff --cached -- ':!uv.lock' ':!*.lock' ':!package-lock.json'
-   git ls-files --others --exclude-standard
-
-   If ALL outputs are empty, just say "No uncommitted changes."
-   Otherwise, summarize what changed — include untracked/new files if any.
+   { git diff HEAD -- ':!uv.lock' ':!*.lock' -- '*.py'; } | head -200; if [ $? -eq 0 ] && [ -z "$(git diff HEAD -- '*.py')" ]; then echo "--- No uncommitted Python changes, showing last commit: ---"; git diff HEAD~1..HEAD -- ':!uv.lock' -- '*.py' | head -200; fi
    ```
-   Use `model: "sonnet"` in the Agent tool.
 
 ### Step 2: Propose config (single message, phone-readable)
 
@@ -51,9 +44,9 @@ Present everything in one compact, scannable message.
 ```
 ## History
 <one-liner about older commits, if any>
-1. <set_name> (<Mon DD>) — <model_short>, <N>ch, <test/real>
+1. <set_name> (<Mon DD>) — <model_short>, <N>ch, <hints/no-hints>
    <N> commits
-2. <set_name> (<Mon DD>) — <model_short>, <N>ch, <test/real>
+2. <set_name> (<Mon DD>) — <model_short>, <N>ch, <hints/no-hints>
 
 ## Since last run (<N> commits, <N> uncommitted files)
 1. <commit summary>
@@ -79,9 +72,8 @@ End with: **"Ready, or change something?"**
 **Rules:**
 - One line per experiment, abbreviated model names (minimax-m2.7 not minimax/minimax-m2.7)
 - Show commit count between experiments, not individual commit messages
-- The uncommitted stat is for YOUR context — don't dump it to the user, just summarize what changed
-- Number each change in "Since last run" so the user can see order: `1. Parallel mode merged. 2. Copilot review rules. 3. (uncommitted) purpose flag + experiment status script.` Group related commits, one number per logical change
-- Highlight anything unusual (TEST_RUN=True on VPN, CHAP without thresholds)
+- Number each change in "Since last run" so the user can see order: `1. Parallel mode merged. 2. Copilot review rules. 3. (uncommitted) output.py fix.` Group related commits, one number per logical change. Derive this directly from the diff and commit list — no separate summary step.
+- Highlight anything unusual (GIVE_HINTS=True on VPN, CHAP without thresholds)
 - Default: inherit last experiment's config unless changes suggest otherwise
 - If CHAP enabled, add token threshold line
 
@@ -125,7 +117,7 @@ Top of `scripts/run_experiment.py`:
 - `CTF_CHALLENGES` — comment/uncomment vm0-vm10
 - `MODEL_NAME` — model string
 - `ENVIRONMENT_MODE` — `"local"`, `"private"`, `"htb"`
-- `TEST_RUN` — `True` gives solutions (local), `False` real
+- `GIVE_HINTS` — `True` gives agent solution hints (local only), `False` no hints
 - `CHAP_ENABLED` — relay protocol toggle
 - `EXPERIMENT_SET_NAME` — results subdirectory
 - `EXPERIMENT_PURPOSE` — prefer `--purpose` CLI flag

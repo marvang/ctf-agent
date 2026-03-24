@@ -397,6 +397,47 @@ class ParallelResultTests(unittest.TestCase):
         self.assertEqual([result["challenge_name"] for result in results], ["vm0", "vm1"])
         self.assertEqual(recorded_futures, {early_future, late_future})
 
+    def test_parallel_experiment_startup_does_not_prewarm_sudo(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime = resolve_session_runtime("parallel-startup-no-sudo")
+            runtime.workspace_dir = temp_dir
+            future_vm0: Future[dict[str, object]] = Future()
+            future_vm0.set_result({"challenge_name": "vm0"})
+            future_vm1: Future[dict[str, object]] = Future()
+            future_vm1.set_result({"challenge_name": "vm1"})
+            submitted_futures = [future_vm0, future_vm1]
+
+            class FakeExecutor:
+                def __init__(self, max_workers: int) -> None:
+                    self.max_workers = max_workers
+
+                def submit(self, fn, **kwargs):  # type: ignore[no-untyped-def]
+                    return submitted_futures.pop(0)
+
+                def shutdown(self, wait: bool = True, cancel_futures: bool = False) -> None:
+                    return None
+
+            with (
+                patch.object(run_experiment, "parse_args", return_value=MagicMock(session_id=None)),
+                patch.object(run_experiment, "apply_cli_overrides"),
+                patch.object(run_experiment, "resolve_session_runtime", return_value=runtime),
+                patch.object(run_experiment, "RESULTS_DIR", temp_dir),
+                patch.object(run_experiment, "EXPERIMENT_SET_NAME", "parallel-startup"),
+                patch.object(run_experiment, "CTF_CHALLENGES", ["vm0", "vm1"]),
+                patch.object(run_experiment, "PARALLEL_MODE", True),
+                patch.object(run_experiment, "MAX_PARALLEL_WORKERS", 2),
+                patch.object(run_experiment, "ENVIRONMENT_MODE", "local"),
+                patch.object(run_experiment, "DISCORD_NOTIFICATIONS_ENABLED", False),
+                patch.object(run_experiment, "start_network", return_value="10.210.0.0/24"),
+                patch.object(run_experiment, "save_results"),
+                patch.object(run_experiment, "run_single_challenge"),
+                patch.object(run_experiment, "ThreadPoolExecutor", FakeExecutor),
+                patch.object(run_experiment, "as_completed", side_effect=lambda futures: list(futures.keys())),
+                patch.object(run_experiment, "stop_network"),
+                patch.object(run_experiment, "_ensure_sudo_ready", side_effect=AssertionError, create=True),
+            ):
+                run_experiment.main()
+
 
 class SessionStateTests(unittest.TestCase):
     def test_create_session_initializes_relay_triggers(self) -> None:
@@ -434,7 +475,7 @@ class SessionStateTests(unittest.TestCase):
             tag="framework_command_result",
             message={
                 "role": "user",
-                "content": "Command executed with exit code 0.\n[STDOUT]\nuid=0",
+                "content": "Exit code: 0.\n[STDOUT]\nuid=0",
             },
             parsed={"exit_code": 0, "stdout": "uid=0", "stderr": ""},
             iteration=0,
@@ -482,7 +523,7 @@ class ProtocolGenerationTests(unittest.TestCase):
             build_assistant_message("enumerate web", "curl http://target"),
             {
                 "role": "user",
-                "content": "Command executed with exit code 0.\n[STDOUT]\n<html>",
+                "content": "Exit code: 0.\n[STDOUT]\n<html>",
             },
         ]
         append_session_event(

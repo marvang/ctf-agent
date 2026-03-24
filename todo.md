@@ -15,15 +15,18 @@ Keep the current run metadata as-is for now, but design a richer target-scope re
 Investigate multi-flag handling for VPN mode (up to ~26 flags per challenge) and potentially multi-flag local challenges. Currently `experiment_status.py` returns a single `flag_captured` string and `flag_valid` boolean per challenge. Needs: updated result schema, `experiment_status.py` changes, flag validation updates, and `/live-updates` skill already has flexible flag display instructions (`flag:3/26` format).
 
 ### Human-in-the-loop (HITL)
-Add a human-in-the-loop mode where the agent can pause and ask the operator for guidance during a challenge run. Useful for debugging agent behavior, providing hints on stuck challenges, and supervised runs where a human monitors progress and can intervene.
+Add a human-in-the-loop mode where the agent can pause and ask the operator for guidance during a challenge run. Useful for debugging agent behavior, providing hints on stuck challenges, and supervised runs where a human monitors progress and can intervene. Blocked on learning Temporal or DBOS first — pick one for durable workflow orchestration.
 
-## In Review
+### Investigate Harbor framework integration
+Harbor (`uv tool install harbor`) is a framework for evaluating and optimizing agents in container environments, from the Terminal-Bench team. Pre-integrates popular CLI agents, has a registry of benchmarks/datasets, and integrates with cloud sandbox providers (Daytona, Modal, E2B, Runloop) for horizontal scaling plus RL/optimization frameworks (SkyRL, GEPA). Investigate: does it complement or overlap with our experiment harness? Could it replace Docker lifecycle management, add scaling for parallel runs, or provide a standard eval interface? Test on a separate branch.
+
+## On Hold
 
 ### Linux compatibility — PR #4
-All review issues fixed (try-unprivileged-first, path validation, portable truncation). Ready to merge.
+All review issues fixed. On hold until Linux deployment is needed.
 
 ### PTY exec model (experimental) — PR #8
-Fixes applied (relay handoff, pexpect deps, empty command guard). Mergeable as experimental. Open items: parsing regression, ANSI stripping, session history, prompt contradiction.
+Fixes applied. On hold until core features are complete. Open items: parsing regression, ANSI stripping, session history, prompt contradiction.
 
 ## Done
 - [x] Harden default command execution to use non-interactive `tty=False`, `stdin=False`, `demux=True` with labeled `[STDOUT]` / `[STDERR]` output and ANSI stripping

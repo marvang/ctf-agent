@@ -76,8 +76,16 @@ def _is_disconnect_helper(script_name: str) -> bool:
     return "disconnect" in script_name.lower()
 
 
-def select_vpn_connect_script(discovered_scripts: list[str], requested_script: str | None = None) -> str | None:
-    """Select a VPN connect script for non-interactive runs."""
+def select_vpn_connect_script(
+    discovered_scripts: list[str],
+    requested_script: str | None = None,
+    environment: str = "private",
+) -> str | None:
+    """Select a VPN connect script for non-interactive runs.
+
+    When multiple connect scripts exist and none is explicitly requested,
+    prefer the custom script over the environment's base default.
+    """
     if requested_script is not None:
         if requested_script not in discovered_scripts:
             raise ValueError(
@@ -90,26 +98,40 @@ def select_vpn_connect_script(discovered_scripts: list[str], requested_script: s
     if len(connect_scripts) <= 1:
         return connect_scripts[0] if connect_scripts else None
 
+    # Prefer custom scripts over the environment's base default
+    base_script = os.path.basename(ENVIRONMENTS[environment]["connect_cmd"].removeprefix("./"))
+    custom_scripts = [s for s in connect_scripts if s != base_script]
+
+    if len(custom_scripts) == 1:
+        return custom_scripts[0]
+
     raise ValueError(
         "Multiple VPN connect scripts found. Specify --vpn-script explicitly: " + ", ".join(connect_scripts)
     )
 
 
-def connect_vpn(container: Container, environment: str = "private", connect_script: str | None = None) -> bool:
+def connect_vpn(
+    container: Container,
+    environment: str = "private",
+    connect_script: str | None = None,
+    quiet: bool = False,
+) -> bool:
     env = ENVIRONMENTS[environment]
     connect_cmd = f"./{connect_script}" if connect_script else env["connect_cmd"]
 
-    print(f"\n🔗 Connecting to {env['label']} VPN...")
+    if not quiet:
+        print(f"\n🔗 Connecting to {env['label']} VPN...")
     try:
         exit_code, output = container.exec_run(["bash", "-c", _build_command(env["workdir"], connect_cmd)])
         command_output = output.decode("utf-8", errors="replace").strip()
-        if command_output:
+        if command_output and (not quiet or exit_code != 0):
             filtered = _filter_vpn_output(command_output)
             if filtered:
                 print(filtered)
 
         if exit_code == 0:
-            print("✅ VPN connected")
+            if not quiet:
+                print("✅ VPN connected")
             return True
         print(f"⚠️  VPN connect script exited with code {exit_code}")
         print("❌ VPN connection failed")
@@ -119,19 +141,21 @@ def connect_vpn(container: Container, environment: str = "private", connect_scri
         return False
 
 
-def disconnect_vpn(container: Container, environment: str = "private", connect_script: str | None = None) -> bool:
+def disconnect_vpn(
+    container: Container,
+    environment: str = "private",
+    connect_script: str | None = None,
+    quiet: bool = False,
+) -> bool:
     env = ENVIRONMENTS[environment]
     if connect_script and env["disconnect_cmd"].endswith("--disconnect"):
         disconnect_cmd = f"./{connect_script} --disconnect"
     else:
         disconnect_cmd = env["disconnect_cmd"]
 
-    print("🔌 Disconnecting VPN...")
     try:
         exit_code, _output = container.exec_run(["bash", "-c", _build_command(env["workdir"], disconnect_cmd)])
-        if exit_code == 0:
-            print("✅ VPN disconnected")
-        else:
+        if exit_code != 0 and not quiet:
             print(f"⚠️  VPN disconnect failed (exit code {exit_code})")
         return bool(exit_code == 0)
     except Exception as e:

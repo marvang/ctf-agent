@@ -1,4 +1,6 @@
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from unittest.mock import Mock
 
 from src.utils.docker_exec import get_container_ips
@@ -35,6 +37,18 @@ class ConnectVpnTests(unittest.TestCase):
 
         self.assertFalse(connected)
 
+    def test_connect_vpn_quiet_still_prints_failure_output(self) -> None:
+        container = Mock()
+        container.exec_run.return_value = (1, b"Missing profile\n2026-03-25 ignored log line")
+        stdout = StringIO()
+
+        with redirect_stdout(stdout):
+            connected = connect_vpn(container, environment="private", quiet=True)
+
+        self.assertFalse(connected)
+        self.assertIn("Missing profile", stdout.getvalue())
+        self.assertIn("VPN connection failed", stdout.getvalue())
+
     def test_disconnect_vpn_uses_environment_disconnect_helper_for_htb(self) -> None:
         container = Mock()
         container.exec_run.return_value = (0, b"VPN disconnected")
@@ -61,7 +75,14 @@ class SelectVpnScriptTests(unittest.TestCase):
 
         self.assertEqual(script, "vpn-connect.sh")
 
-    def test_select_vpn_script_raises_when_multiple_scripts_exist(self) -> None:
+    def test_select_vpn_script_prefers_custom_over_base_default(self) -> None:
+        script = select_vpn_connect_script(
+            ["KTH-vpn-connect.sh", "vpn-connect.sh"], environment="private"
+        )
+
+        self.assertEqual(script, "KTH-vpn-connect.sh")
+
+    def test_select_vpn_script_raises_when_multiple_custom_scripts_exist(self) -> None:
         with self.assertRaisesRegex(ValueError, "Specify --vpn-script explicitly"):
             select_vpn_connect_script(["alpha.sh", "beta.sh"])
 

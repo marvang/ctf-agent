@@ -75,7 +75,7 @@ def cmd_list(results_dir: str, *, running_only: bool = False, limit: int = 0) ->
                 "completed_challenges": meta.get("completed_challenges", 0),
                 "termination_reason": meta.get("termination_reason", "unknown"),
                 "chap_enabled": meta.get("chap_enabled", False),
-                "test_run": meta.get("test_run", False),
+                "give_hints": meta.get("give_hints", meta.get("test_run", False)),
                 "parallel_mode": meta.get("parallel_mode", False),
                 "running": _is_running(meta),
             }
@@ -149,7 +149,7 @@ def cmd_status(experiment_dir: str) -> dict[str, Any]:
         "metadata": {
             "model": meta.get("model", "unknown"),
             "chap_enabled": meta.get("chap_enabled", False),
-            "test_run": meta.get("test_run", False),
+            "give_hints": meta.get("give_hints", meta.get("test_run", False)),
             "parallel_mode": meta.get("parallel_mode", False),
             "challenge_count": meta.get("challenge_count", 0),
             "completed_challenges": meta.get("completed_challenges", 0),
@@ -435,7 +435,7 @@ def _experiment_detail(summary_path: str) -> dict[str, Any]:
         "model": meta.get("model", "unknown"),
         "challenge_count": meta.get("challenge_count", 0),
         "chap_enabled": meta.get("chap_enabled", False),
-        "test_run": meta.get("test_run", False),
+        "give_hints": meta.get("give_hints", meta.get("test_run", False)),
         "purpose": meta.get("purpose"),
         "git_commit_hash": meta.get("git_commit_hash"),
     }
@@ -475,7 +475,7 @@ def _join_sections(sections: list[str]) -> str:
 
 
 def cmd_changes_since_last(results_dir: str) -> dict[str, Any]:
-    """Build a chronological timeline of up to 3 recent experiments interleaved with commits."""
+    """Build a chronological timeline of up to 5 recent experiments interleaved with commits."""
     # Scan for experiment summaries directly (single parse per file, no cmd_list double-read)
     results_path = Path(results_dir)
     summaries: list[tuple[str, dict[str, Any]]] = []
@@ -485,7 +485,7 @@ def cmd_changes_since_last(results_dir: str) -> dict[str, Any]:
             if detail:
                 summaries.append((detail.get("timestamp", ""), detail))
     summaries.sort(key=lambda x: x[0], reverse=True)  # newest-first
-    detailed = [d for _, d in summaries[:3]]
+    detailed = [d for _, d in summaries[:5]]
     detailed.reverse()  # oldest-first for chronological order
 
     # Build interleaved timeline (all commits + experiments)

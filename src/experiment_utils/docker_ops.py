@@ -294,10 +294,11 @@ def stop_container(vm_name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def start_kali_container(container_name: str = _DEFAULT_KALI_NAME) -> bool:
+def start_kali_container(container_name: str = _DEFAULT_KALI_NAME, quiet: bool = False) -> bool:
     """Start Kali Linux container for a fresh environment."""
     try:
-        print(f"🔄 Starting {container_name}...")
+        if not quiet:
+            print(f"🔄 Starting {container_name}...")
         subprocess.run(
             ["docker", "compose", "up", "-d", container_name],
             cwd=_PROJECT_ROOT,
@@ -305,7 +306,8 @@ def start_kali_container(container_name: str = _DEFAULT_KALI_NAME) -> bool:
             capture_output=True,
             text=True,
         )
-        print(f"✅ {container_name} started")
+        if not quiet:
+            print(f"✅ {container_name} started")
         return True
     except subprocess.CalledProcessError as err:
         print(f"❌ Failed to start {container_name}: {err}")
@@ -318,11 +320,13 @@ def start_kali_container_standalone(
     workspace_dir: str,
     compose_file: str | Path = _KALI_COMPOSE_FILE,
     include_host_ports: bool = True,
+    quiet: bool = False,
 ) -> bool:
     """Start a Kali container directly via docker run with an isolated workspace mount."""
     try:
         ensure_workspace_dir(workspace_dir)
-        print(f"🔄 Starting {container_name} (standalone)...")
+        if not quiet:
+            print(f"🔄 Starting {container_name} (standalone)...")
         extra_volumes: list[str] = []
         shared_vpn_dir = Path(SHARED_VPN_DIR)
         if shared_vpn_dir.exists():
@@ -340,28 +344,30 @@ def start_kali_container_standalone(
             extra_volumes=extra_volumes,
             include_host_ports=include_host_ports,
         )
-        print(f"✅ {container_name} started (standalone)")
+        if not quiet:
+            print(f"✅ {container_name} started (standalone)")
         return True
     except (subprocess.CalledProcessError, ValueError) as err:
         print(f"❌ Failed to start {container_name}: {err}")
         return False
 
 
-def stop_kali_container(container_name: str = _DEFAULT_KALI_NAME) -> bool:
+def stop_kali_container(container_name: str = _DEFAULT_KALI_NAME, quiet: bool = False) -> bool:
     """Force-remove the Kali Linux container if it exists."""
-    print(f"🔄 Removing {container_name}...")
+    if not quiet:
+        print(f"🔄 Removing {container_name}...")
     remove = subprocess.run(
         ["docker", "rm", "-f", container_name],
         capture_output=True,
         text=True,
     )
     if remove.returncode == 0:
-        print(f"✅ {container_name} removed")
+        if not quiet:
+            print(f"✅ {container_name} removed")
         return True
 
     stderr = (remove.stderr or "").lower()
     if "no such container" in stderr:
-        print(f"✅ {container_name} already absent")
         return True
 
     print(f"❌ Failed to remove {container_name}: {(remove.stderr or '').strip()}")

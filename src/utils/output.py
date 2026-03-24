@@ -73,7 +73,7 @@ def format_command_result_for_llm(result: CommandExecutionResult, max_length: in
     truncated_stdout = truncate_output(sanitized_stdout, stdout_budget) if sanitized_stdout else ""
     truncated_stderr = truncate_output(sanitized_stderr, stderr_budget) if sanitized_stderr else ""
 
-    content_parts = [f"Command executed with exit code {result.exit_code}."]
+    content_parts = [f"Exit code: {result.exit_code}."]
     if truncated_stdout:
         content_parts.append(f"[STDOUT]\n{truncated_stdout}")
     if truncated_stderr:

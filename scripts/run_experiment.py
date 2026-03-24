@@ -69,24 +69,23 @@ from src.utils.git import build_git_provenance
 from src.utils.run_ids import generate_run_id
 from src.utils.state_manager import persist_session
 from src.utils.vpn import connect_vpn, disconnect_vpn, discover_vpn_scripts, select_vpn_connect_script
-from src.utils.workspace import _ensure_sudo_ready
 
 # EXPERIMENT CONFIGURATION
 
 # --- Shared settings ---
 
-TEST_RUN = (
+GIVE_HINTS = (
     True  # Set to True only for test runs. For local: gives agent solutions. Blocked for VPN (no test hints exist).
 )
 USE_CUSTOM_INSTRUCTIONS = True  # Enable/disable per-challenge custom instructions. Recommended to keep True.
-CHALLENGE_CUSTOM_INSTRUCTIONS = TEST_CHALLENGE_CUSTOM_INSTRUCTIONS if TEST_RUN else REAL_CHALLENGE_CUSTOM_INSTRUCTIONS
+CHALLENGE_CUSTOM_INSTRUCTIONS = TEST_CHALLENGE_CUSTOM_INSTRUCTIONS if GIVE_HINTS else REAL_CHALLENGE_CUSTOM_INSTRUCTIONS
 
 MODEL_NAME = "minimax/minimax-m2.7"
 # Model names for quick access: anthropic/claude-sonnet-4.6, anthropic/claude-opus-4.6, openai/gpt-5.4-mini, minimax/minimax-m2.5:free, minimax/minimax-m2.7, cognitivecomputations/dolphin-mistral-24b-venice-edition:free, xiaomi/mimo-v2-pro
 CHAP_ENABLED = False
-MAX_ITERATIONS = 60
+MAX_ITERATIONS = 80
 COMMAND_TIMEOUT = 220
-MAX_COST = 5
+MAX_COST = 1
 
 # CHAP prompt token thresholds (only used if CHAP enabled)
 # Threshold increases per agent: threshold = BASE + (agent_number * INCREMENT)
@@ -99,7 +98,7 @@ CHAP_MIN_ITERATIONS_FOR_RELAY = 30  # Minimum iterations before manual relay is 
 
 DISCORD_NOTIFICATIONS_ENABLED = True  # Set to False, to enable you need to set DISCORD_MAIN_BOT_TOKEN and DISCORD_GUILD_ID in .env which you can get from your Discord developer portal after creating an application and bot
 RESULTS_DIR = "./results"
-EXPERIMENT_SET_NAME = "post-merge-parallel"
+EXPERIMENT_SET_NAME = "test-sudo-fix"
 EXPERIMENT_PURPOSE: str | None = None  # Optional free-text purpose, saved in metadata (pass via --purpose)
 ENVIRONMENT_MODE: EnvironmentType = "local"  # "local", "private", or "htb"
 
@@ -107,22 +106,22 @@ ENVIRONMENT_MODE: EnvironmentType = "local"  # "local", "private", or "htb"
 
 CTF_CHALLENGES = [
     "vm0",
-    "vm1",
-    "vm2",
-    "vm3",
-    "vm4",
-    "vm5",
-    "vm6",
-    "vm7",
-    "vm8",
-    "vm9",
-    "vm10",
+    # "vm1",
+    # "vm2",
+    # "vm3",
+    # "vm4",
+    # "vm5",
+    # "vm6",
+    # "vm7",
+    # "vm8",
+    # "vm9",
+    # "vm10",
 ]
 LOCAL_FLAG_DIR = LOCAL_CHALLENGES_ROOT_STR  # Directory containing per-challenge flag.txt files
 LOCAL_ARCH: LocalArch = "aarch64"  # Architecture-specific prompt selection for local challenge runs
 SERVICE_STARTUP_DELAY = 30  # Only for local mode.
-PARALLEL_MODE = True  # Run local challenges concurrently instead of sequentially.
-MAX_PARALLEL_WORKERS = 6  # Max challenges to run at the same time in parallel mode.
+PARALLEL_MODE = False  # Run local challenges concurrently instead of sequentially.
+MAX_PARALLEL_WORKERS = 2  # Max challenges to run at the same time in parallel mode.
 PARALLEL_INTERRUPT_DRAIN_TIMEOUT_SECONDS = 5.0  # Wait briefly for interrupted workers to persist results.
 
 # --- VPN/Remote mode ---
@@ -282,7 +281,7 @@ def save_results(
         "command_timeout_seconds": COMMAND_TIMEOUT,
         "max_output_length": MAX_OUTPUT_LENGTH,
         "max_cost": MAX_COST,
-        "test_run": TEST_RUN,
+        "give_hints": GIVE_HINTS,
         "use_custom_instructions": USE_CUSTOM_INSTRUCTIONS,
         "custom_instructions_by_challenge": custom_instructions_map,
         "chap_token_limit_base": CHAP_TOKEN_LIMIT_BASE,
@@ -397,7 +396,7 @@ def _stop_parallel_challenge_resources(challenges: list[str], session_runtime: S
         container_name = session_runtime.challenge_container_name(challenge)
         network_name = session_runtime.parallel_network_name(challenge)
         try:
-            stop_kali_container(kali_name)
+            stop_kali_container(kali_name, quiet=True)
         except Exception:
             pass
         try:
@@ -516,6 +515,7 @@ def run_single_challenge(
                 challenge_network,
                 workspace_dir,
                 include_host_ports=not parallel,
+                quiet=True,
             )
             if not kali_ok:
                 send_docker_connection_error_message(
@@ -615,20 +615,13 @@ def run_single_challenge(
         result["flag_valid"] = flag_valid
         result["expected_flags"] = expected_flags
 
-        print(f"\n{'=' * 80}")
-        print(f"RESULT: {challenge}")
-        print(f"{'=' * 80}")
-        print(f"Flag captured: {result['flag_captured']}")
-        if expected_flags:
-            print(f"Flag valid: {'✅' if result['flag_valid'] else '❌'} {result['flag_valid']}")
-        print(f"Iterations: {result['iterations']}")
-        print(f"Relay count: {result['relay_count']}")
-        print(f"Cost: ${result['total_cost']:.4f}")
-        print(f"Time: {result['total_time']:.1f}s")
-        print(f"Stopping reason: {result['stopping_reason']}")
-        if result["error"]:
-            print(f"Error: {result['error']}")
-        print(f"{'=' * 80}")
+        if result["flag_captured"] and expected_flags:
+            icon = "✅" if result["flag_valid"] else "❌"
+            print(f"{icon} {challenge} — flag {'valid' if result['flag_valid'] else 'invalid'}")
+        elif result["flag_captured"]:
+            print(f"🏴 {challenge} — flag captured (no ground truth to validate)")
+        else:
+            print(f"⚠️  {challenge} — no flag captured")
 
         send_challenge_complete_message(channel_id=channel_id, challenge=challenge, result=result)
         return result
@@ -672,12 +665,9 @@ def run_single_challenge(
 
     finally:
         if is_local:
-            print(f"🧹 [{challenge}] Cleaning up...")
-            stop_kali_container(kali_name)
-            print(f"🧹 [{challenge}] Stopping vulnerable container")
+            stop_kali_container(kali_name, quiet=True)
             stop_challenge_container_standalone(challenge_container_name)
             if parallel:
-                print(f"🧹 [{challenge}] Removing isolated network")
                 stop_network(challenge_network)
 
 
@@ -709,10 +699,6 @@ def main() -> None:
         if VPN_FLAGS_FILE:
             print(f"Flags file: {VPN_FLAGS_FILE}")
     print(f"Experiment name: {EXPERIMENT_SET_NAME}")
-    print(f"Session ID: {session_runtime.session_id}")
-    print(f"Kali container: {session_runtime.kali_container_name}")
-    print(f"Network: {session_runtime.network_name} ({session_runtime.subnet})")
-    print(f"Workspace: {session_runtime.workspace_dir}")
     if PARALLEL_MODE:
         print(f"Parallel: Yes ({MAX_PARALLEL_WORKERS} workers)")
     print("=" * 80)
@@ -736,9 +722,9 @@ def main() -> None:
             print("  For IP ranges or extra target info, use custom instructions instead.")
             sys.exit(1)
 
-    if TEST_RUN and not is_local:
-        print(f"ERROR: TEST_RUN=True is not supported for environment '{ENVIRONMENT_MODE}'.")
-        print("  Test hints do not exist for VPN/remote targets. Set TEST_RUN=False or use --environment local.")
+    if GIVE_HINTS and not is_local:
+        print(f"ERROR: GIVE_HINTS=True is not supported for environment '{ENVIRONMENT_MODE}'.")
+        print("  Test hints do not exist for VPN/remote targets. Set GIVE_HINTS=False or use --environment local.")
         sys.exit(1)
 
     # VPN mode: start Kali, connect VPN before the challenge loop
@@ -750,7 +736,7 @@ def main() -> None:
     experiment_id = generate_run_id()
     discord_experiment_id = f"{EXPERIMENT_SET_NAME}-{experiment_id}" if EXPERIMENT_SET_NAME else experiment_id
     results_dir = os.path.join(RESULTS_DIR, EXPERIMENT_SET_NAME) if EXPERIMENT_SET_NAME else RESULTS_DIR
-    experiment_dir = os.path.join(results_dir, f"experiment_{experiment_id}")
+    experiment_dir = os.path.join(results_dir, experiment_id)
     os.makedirs(experiment_dir, exist_ok=True)
     termination_reason = "in_progress"
     total_challenges = len(challenges_to_run)
@@ -758,7 +744,6 @@ def main() -> None:
     channel_id = None
 
     try:
-        print(f"\n🌐 Ensuring Docker network '{session_runtime.network_name}' is available...")
         session_runtime.subnet = start_network(
             session_runtime.network_name,
             session_runtime.subnet or "",
@@ -770,6 +755,7 @@ def main() -> None:
                 session_runtime.kali_container_name,
                 session_runtime.network_name,
                 session_runtime.workspace_dir,
+                quiet=True,
             )
             if not kali_ok:
                 raise RuntimeError("Failed to start Kali container")
@@ -778,11 +764,9 @@ def main() -> None:
                 raise RuntimeError("Failed to get Kali container handle")
 
             scripts = discover_vpn_scripts(vpn_container, ENVIRONMENT_MODE)
-            vpn_connect_script = select_vpn_connect_script(scripts, VPN_CONNECT_SCRIPT)
-            if vpn_connect_script:
-                print(f"🔌 Using VPN connect script: {vpn_connect_script}")
+            vpn_connect_script = select_vpn_connect_script(scripts, VPN_CONNECT_SCRIPT, environment=ENVIRONMENT_MODE)
 
-            if not connect_vpn(vpn_container, ENVIRONMENT_MODE, vpn_connect_script):
+            if not connect_vpn(vpn_container, ENVIRONMENT_MODE, vpn_connect_script, quiet=True):
                 raise RuntimeError("VPN connection failed")
 
         # Load flags from file for VPN mode (if provided)
@@ -825,9 +809,10 @@ def main() -> None:
             print(f"\n🚀 Parallel mode: {len(challenges_to_run)} challenges, {MAX_PARALLEL_WORKERS} workers")
             print(f"⚠️  This will run up to {MAX_PARALLEL_WORKERS * 2} Docker containers simultaneously")
 
-            # Pre-warm sudo before spawning threads to avoid concurrent stdin races
-            _ensure_sudo_ready()
-
+            # Intentionally do not pre-warm sudo here. The common path uses fresh per-challenge
+            # workspaces, so a startup sudo prompt would be unnecessary overhead. If reused
+            # session workspaces start surfacing concurrent cleanup/sudo races, restore a
+            # serialized preflight here instead of prompting inside worker threads.
             results_lock = threading.Lock()
             recorded_futures: set[Future[dict[str, Any]]] = set()
             executor = ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS)
@@ -1040,15 +1025,12 @@ def main() -> None:
 
     finally:
         # Cleanup runs on all exit paths: success, KeyboardInterrupt, errors, VPN setup failures
-        print("\n🧹 Final cleanup...")
         if not is_local:
             if vpn_container is not None:
-                disconnect_vpn(vpn_container, ENVIRONMENT_MODE, vpn_connect_script)
-            stop_kali_container(session_runtime.kali_container_name)
+                disconnect_vpn(vpn_container, ENVIRONMENT_MODE, vpn_connect_script, quiet=True)
+            stop_kali_container(session_runtime.kali_container_name, quiet=True)
 
-        print(f"\n🛑 Stopping Docker network '{session_runtime.network_name}'...")
         stop_network(session_runtime.network_name)
-        print("Exit.")
 
 
 if __name__ == "__main__":

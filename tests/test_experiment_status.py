@@ -48,7 +48,7 @@ def _make_experiment_summary(
             "experiment_set_name": set_name,
             "timestamp": timestamp,
             "chap_enabled": False,
-            "test_run": True,
+            "give_hints": True,
         }
     }
 

@@ -24,7 +24,7 @@ class ReplayHelperTests(unittest.TestCase):
         command_message = build_assistant_message("enumerate", "id")
         result_message = {
             "role": "user",
-            "content": "Command executed with exit code 0.\n[STDOUT]\nuid=0",
+            "content": "Exit code: 0.\n[STDOUT]\nuid=0",
         }
 
         append_session_event(
@@ -106,7 +106,7 @@ class ReplayHelperTests(unittest.TestCase):
             build_assistant_message("enumerate web", "curl http://target"),
             {
                 "role": "user",
-                "content": "Command executed with exit code 0.\n[STDOUT]\n<html>",
+                "content": "Exit code: 0.\n[STDOUT]\n<html>",
             },
         ]
         append_session_event(
