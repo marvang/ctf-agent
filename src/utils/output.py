@@ -70,14 +70,16 @@ def format_command_result_for_llm(result: CommandExecutionResult, max_length: in
     stdout_budget = max_length if sanitized_stdout and not sanitized_stderr else max(max_length // 2, 1)
     stderr_budget = max_length if sanitized_stderr and not sanitized_stdout else max(max_length - stdout_budget, 1)
 
-    truncated_stdout = truncate_output(sanitized_stdout, stdout_budget) if sanitized_stdout else "<empty>"
-    truncated_stderr = truncate_output(sanitized_stderr, stderr_budget) if sanitized_stderr else "<empty>"
+    truncated_stdout = truncate_output(sanitized_stdout, stdout_budget) if sanitized_stdout else ""
+    truncated_stderr = truncate_output(sanitized_stderr, stderr_budget) if sanitized_stderr else ""
 
-    content = (
-        f"Command executed with exit code {result.exit_code}.\n"
-        f"[STDOUT]\n{truncated_stdout}\n"
-        f"[STDERR]\n{truncated_stderr}"
-    )
+    content_parts = [f"Command executed with exit code {result.exit_code}."]
+    if truncated_stdout:
+        content_parts.append(f"[STDOUT]\n{truncated_stdout}")
+    if truncated_stderr:
+        content_parts.append(f"[STDERR]\n{truncated_stderr}")
+    content = "\n".join(content_parts)
+
     return FormattedCommandOutput(
         stdout=truncated_stdout,
         stderr=truncated_stderr,

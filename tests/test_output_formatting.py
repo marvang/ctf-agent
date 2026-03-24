@@ -18,14 +18,41 @@ class OutputFormattingTests(unittest.TestCase):
             "Command executed with exit code 2.\n[STDOUT]\nhello\n[STDERR]\nboom",
         )
 
-    def test_format_command_result_uses_empty_placeholder(self) -> None:
+    def test_format_command_result_omits_empty_streams(self) -> None:
         formatted = format_command_result_for_llm(
             CommandExecutionResult(success=True, exit_code=0, stdout="", stderr=""),
             max_length=100,
         )
 
-        self.assertIn("[STDOUT]\n<empty>", formatted.content)
-        self.assertIn("[STDERR]\n<empty>", formatted.content)
+        self.assertEqual(formatted.stdout, "")
+        self.assertEqual(formatted.stderr, "")
+        self.assertEqual(formatted.content, "Command executed with exit code 0.")
+
+    def test_format_command_result_omits_empty_stderr(self) -> None:
+        formatted = format_command_result_for_llm(
+            CommandExecutionResult(success=True, exit_code=0, stdout="uid=0", stderr=""),
+            max_length=100,
+        )
+
+        self.assertEqual(formatted.stdout, "uid=0")
+        self.assertEqual(formatted.stderr, "")
+        self.assertEqual(
+            formatted.content,
+            "Command executed with exit code 0.\n[STDOUT]\nuid=0",
+        )
+
+    def test_format_command_result_omits_empty_stdout(self) -> None:
+        formatted = format_command_result_for_llm(
+            CommandExecutionResult(success=False, exit_code=1, stdout="", stderr="permission denied"),
+            max_length=100,
+        )
+
+        self.assertEqual(formatted.stdout, "")
+        self.assertEqual(formatted.stderr, "permission denied")
+        self.assertEqual(
+            formatted.content,
+            "Command executed with exit code 1.\n[STDERR]\npermission denied",
+        )
 
     def test_format_command_result_truncates_each_stream_independently(self) -> None:
         formatted = format_command_result_for_llm(

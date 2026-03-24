@@ -434,9 +434,9 @@ class SessionStateTests(unittest.TestCase):
             tag="framework_command_result",
             message={
                 "role": "user",
-                "content": "Command executed with exit code 0.\n[STDOUT]\nuid=0\n[STDERR]\n<empty>",
+                "content": "Command executed with exit code 0.\n[STDOUT]\nuid=0",
             },
-            parsed={"exit_code": 0, "stdout": "uid=0", "stderr": "<empty>"},
+            parsed={"exit_code": 0, "stdout": "uid=0", "stderr": ""},
             iteration=0,
             metadata={"assistant_event_index": assistant_event["event_index"]},
         )
@@ -482,7 +482,7 @@ class ProtocolGenerationTests(unittest.TestCase):
             build_assistant_message("enumerate web", "curl http://target"),
             {
                 "role": "user",
-                "content": "Command executed with exit code 0.\n[STDOUT]\n<html>\n[STDERR]\n<empty>",
+                "content": "Command executed with exit code 0.\n[STDOUT]\n<html>",
             },
         ]
         append_session_event(
@@ -517,7 +517,7 @@ class ProtocolGenerationTests(unittest.TestCase):
             stream="main_agent",
             tag="framework_command_result",
             message=runtime_messages[3],
-            parsed={"exit_code": 0, "stdout": "<html>", "stderr": "<empty>"},
+            parsed={"exit_code": 0, "stdout": "<html>", "stderr": ""},
             iteration=4,
             agent_number=1,
             metadata={"assistant_event_index": assistant_event["event_index"], "included_in_history": True},
