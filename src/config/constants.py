@@ -99,6 +99,43 @@ def get_session_challenge_name(challenge_name: str, normalized_id: str, *, use_h
     return f"{challenge_name}-{_session_resource_suffix(normalized_id, use_hash=use_hash)}"
 
 
+def get_parallel_kali_name(normalized_id: str, challenge_name: str) -> str:
+    """Return a per-challenge Kali container name for parallel experiment mode."""
+    combined = f"{normalized_id}-{challenge_name}"
+    digest = hashlib.sha256(combined.encode("utf-8")).hexdigest()[:_SESSION_HASH_LENGTH]
+    label = _truncate_session_label(normalized_id)
+    return f"{KALI_CONTAINER_NAME}-{label}-{challenge_name}-{digest}"
+
+
+def get_parallel_network_name(normalized_id: str, challenge_name: str) -> str:
+    """Return a per-challenge Docker network name for parallel experiment mode."""
+    combined = f"{normalized_id}-{challenge_name}"
+    digest = hashlib.sha256(combined.encode("utf-8")).hexdigest()[:_SESSION_HASH_LENGTH]
+    label = _truncate_session_label(normalized_id)
+    return f"{LOCAL_CHALLENGES_NETWORK_NAME}_{label}-{challenge_name}-{digest}"
+
+
+def get_parallel_subnet_candidates(normalized_id: str, challenge_name: str, count: int = _SESSION_SUBNET_CANDIDATE_COUNT) -> list[str]:
+    """Return a stable sequence of candidate /24 subnets for a per-challenge parallel network."""
+    combined = f"{normalized_id}-{challenge_name}"
+    digest = hashlib.sha256(combined.encode("utf-8")).digest()
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    for index in range(count):
+        second_octet = _SESSION_SUBNET_SECOND_OCTET_BASE + (
+            digest[index % len(digest)] % _SESSION_SUBNET_SECOND_OCTET_SPAN
+        )
+        third_octet = digest[(index + 1) % len(digest)]
+        subnet = f"10.{second_octet}.{third_octet}.0/24"
+        if subnet in seen:
+            continue
+        seen.add(subnet)
+        candidates.append(subnet)
+
+    return candidates
+
+
 def get_session_subnet_candidates(normalized_id: str, count: int = _SESSION_SUBNET_CANDIDATE_COUNT) -> list[str]:
     """Return a stable sequence of candidate /24 subnets for a session."""
     digest = hashlib.sha256(normalized_id.encode("utf-8")).digest()

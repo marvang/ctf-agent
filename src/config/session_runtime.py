@@ -1,9 +1,13 @@
 """Session-scoped runtime resource naming."""
 
+import os
 import re
 from dataclasses import dataclass
 
 from src.config.constants import (
+    get_parallel_kali_name,
+    get_parallel_network_name,
+    get_parallel_subnet_candidates,
     get_session_challenge_name,
     get_session_kali_name,
     get_session_network_name,
@@ -11,7 +15,7 @@ from src.config.constants import (
     get_session_subnet_from_id,
     normalize_session_id,
 )
-from src.config.workspace import SESSION_WORKSPACES_ROOT, get_workspace_dir
+from src.config.workspace import SESSION_WORKSPACES_ROOT, ensure_workspace_dir, get_workspace_dir
 
 _AUTO_SESSION_PATTERN = re.compile(r"-(\d+)$")
 
@@ -31,6 +35,22 @@ class SessionRuntime:
     def challenge_container_name(self, challenge_name: str) -> str:
         """Return the challenge container name for this session."""
         return get_session_challenge_name(challenge_name, self.session_id)
+
+    def parallel_kali_name(self, challenge_name: str) -> str:
+        """Return a per-challenge Kali container name for parallel mode."""
+        return get_parallel_kali_name(self.session_id, challenge_name)
+
+    def challenge_workspace_dir(self, challenge_name: str) -> str:
+        """Return a per-challenge workspace subdirectory for parallel mode."""
+        return ensure_workspace_dir(os.path.join(self.workspace_dir, challenge_name))
+
+    def parallel_network_name(self, challenge_name: str) -> str:
+        """Return a per-challenge Docker network name for parallel mode."""
+        return get_parallel_network_name(self.session_id, challenge_name)
+
+    def parallel_subnet_candidates(self, challenge_name: str) -> tuple[str, ...]:
+        """Return subnet candidates for a per-challenge parallel network."""
+        return tuple(get_parallel_subnet_candidates(self.session_id, challenge_name))
 
 
 def _next_session_number(prefix: str) -> int:

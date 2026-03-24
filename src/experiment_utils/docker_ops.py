@@ -317,6 +317,7 @@ def start_kali_container_standalone(
     network_name: str,
     workspace_dir: str,
     compose_file: str | Path = _KALI_COMPOSE_FILE,
+    include_host_ports: bool = True,
 ) -> bool:
     """Start a Kali container directly via docker run with an isolated workspace mount."""
     try:
@@ -337,6 +338,7 @@ def start_kali_container_standalone(
             network_name=network_name,
             volume_target_overrides={CONTAINER_WORKSPACE_DIR: str(Path(workspace_dir).resolve())},
             extra_volumes=extra_volumes,
+            include_host_ports=include_host_ports,
         )
         print(f"✅ {container_name} started (standalone)")
         return True
