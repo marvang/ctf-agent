@@ -137,9 +137,7 @@ class TestCmdList(unittest.TestCase):
             exp = os.path.join(tmpdir, "test", "experiment_20260324_120000")
             _write_json(
                 os.path.join(exp, "experiment_summary.json"),
-                _make_experiment_summary(
-                    ["vm0", "vm1"], completed=0, termination_reason="unknown"
-                ),
+                _make_experiment_summary(["vm0", "vm1"], completed=0, termination_reason="unknown"),
             )
             result = cmd_list(tmpdir)
             self.assertEqual(len(result), 1)
@@ -169,7 +167,9 @@ class TestCmdList(unittest.TestCase):
             exp2 = os.path.join(tmpdir, "done", "experiment_20260324_120000")
             _write_json(
                 os.path.join(exp2, "experiment_summary.json"),
-                _make_experiment_summary(["vm0"], completed=1, termination_reason="completed", timestamp="20260324_120000"),
+                _make_experiment_summary(
+                    ["vm0"], completed=1, termination_reason="completed", timestamp="20260324_120000"
+                ),
             )
 
             result = cmd_list(tmpdir, running_only=True)

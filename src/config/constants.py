@@ -115,7 +115,9 @@ def get_parallel_network_name(normalized_id: str, challenge_name: str) -> str:
     return f"{LOCAL_CHALLENGES_NETWORK_NAME}_{label}-{challenge_name}-{digest}"
 
 
-def get_parallel_subnet_candidates(normalized_id: str, challenge_name: str, count: int = _SESSION_SUBNET_CANDIDATE_COUNT) -> list[str]:
+def get_parallel_subnet_candidates(
+    normalized_id: str, challenge_name: str, count: int = _SESSION_SUBNET_CANDIDATE_COUNT
+) -> list[str]:
     """Return a stable sequence of candidate /24 subnets for a per-challenge parallel network."""
     combined = f"{normalized_id}-{challenge_name}"
     digest = hashlib.sha256(combined.encode("utf-8")).digest()

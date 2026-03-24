@@ -65,19 +65,21 @@ def cmd_list(results_dir: str, *, running_only: bool = False, limit: int = 0) ->
         meta = data.get("metadata", {})
         experiment_dir = str(summary_path.parent)
 
-        experiments.append({
-            "path": experiment_dir,
-            "set_name": meta.get("experiment_set_name", "unknown"),
-            "timestamp": meta.get("timestamp", "unknown"),
-            "model": meta.get("model", "unknown"),
-            "challenge_count": meta.get("challenge_count", 0),
-            "completed_challenges": meta.get("completed_challenges", 0),
-            "termination_reason": meta.get("termination_reason", "unknown"),
-            "chap_enabled": meta.get("chap_enabled", False),
-            "test_run": meta.get("test_run", False),
-            "parallel_mode": meta.get("parallel_mode", False),
-            "running": _is_running(meta),
-        })
+        experiments.append(
+            {
+                "path": experiment_dir,
+                "set_name": meta.get("experiment_set_name", "unknown"),
+                "timestamp": meta.get("timestamp", "unknown"),
+                "model": meta.get("model", "unknown"),
+                "challenge_count": meta.get("challenge_count", 0),
+                "completed_challenges": meta.get("completed_challenges", 0),
+                "termination_reason": meta.get("termination_reason", "unknown"),
+                "chap_enabled": meta.get("chap_enabled", False),
+                "test_run": meta.get("test_run", False),
+                "parallel_mode": meta.get("parallel_mode", False),
+                "running": _is_running(meta),
+            }
+        )
 
     experiments.sort(key=lambda e: e["timestamp"], reverse=True)
     if running_only:
@@ -286,13 +288,17 @@ def _compact_event(event: dict[str, Any], max_content_len: int = 500) -> dict[st
         if isinstance(msg, dict):
             content = msg.get("content", "")
             if isinstance(content, str):
-                compact["output"] = content[:max_content_len] + "...[truncated]" if len(content) > max_content_len else content
+                compact["output"] = (
+                    content[:max_content_len] + "...[truncated]" if len(content) > max_content_len else content
+                )
     else:
         msg = event.get("message", {})
         if isinstance(msg, dict):
             content = msg.get("content", "")
             if isinstance(content, str) and content:
-                compact["content"] = content[:max_content_len] + "...[truncated]" if len(content) > max_content_len else content
+                compact["content"] = (
+                    content[:max_content_len] + "...[truncated]" if len(content) > max_content_len else content
+                )
 
     return compact
 
@@ -440,7 +446,9 @@ def _commits_between(older_hash: str, newer_hash: str) -> list[dict[str, str]]:
     log = _git(["log", "--oneline", "--reverse", f"{older_hash}..{newer_hash}"])
     if not log:
         return []
-    return [{"type": "commit", "hash": h, "message": m} for h, m in (line.split(maxsplit=1) for line in log.splitlines())]
+    return [
+        {"type": "commit", "hash": h, "message": m} for h, m in (line.split(maxsplit=1) for line in log.splitlines())
+    ]
 
 
 _LOCK_EXCLUDES = [":!uv.lock", ":!*.lock", ":!package-lock.json"]
@@ -554,10 +562,17 @@ def main() -> None:
 
     parser.add_argument("--results-dir", default="results", help="Results directory (default: results/)")
     parser.add_argument("--running-only", action="store_true", help="Only show running experiments (use with --list)")
-    parser.add_argument("--limit", type=int, default=0, help="Limit number of results returned (0 = unlimited, use with --list)")
+    parser.add_argument(
+        "--limit", type=int, default=0, help="Limit number of results returned (0 = unlimited, use with --list)"
+    )
     parser.add_argument("--after-index", type=int, default=-1, help="Only events after this event_index")
     parser.add_argument("--max-events", type=int, default=50, help="Max key events to return (default: 50)")
-    parser.add_argument("--tail-iterations", type=int, default=30, help="Number of recent iterations to extract (use with --extract-recent)")
+    parser.add_argument(
+        "--tail-iterations",
+        type=int,
+        default=30,
+        help="Number of recent iterations to extract (use with --extract-recent)",
+    )
 
     args = parser.parse_args()
 
