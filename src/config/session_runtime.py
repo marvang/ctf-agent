@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from src.config.constants import (
     get_parallel_kali_name,
+    get_parallel_network_name,
+    get_parallel_subnet_candidates,
     get_session_challenge_name,
     get_session_kali_name,
     get_session_network_name,
@@ -41,6 +43,14 @@ class SessionRuntime:
     def challenge_workspace_dir(self, challenge_name: str) -> str:
         """Return a per-challenge workspace subdirectory for parallel mode."""
         return ensure_workspace_dir(os.path.join(self.workspace_dir, challenge_name))
+
+    def parallel_network_name(self, challenge_name: str) -> str:
+        """Return a per-challenge Docker network name for parallel mode."""
+        return get_parallel_network_name(self.session_id, challenge_name)
+
+    def parallel_subnet_candidates(self, challenge_name: str) -> tuple[str, ...]:
+        """Return subnet candidates for a per-challenge parallel network."""
+        return tuple(get_parallel_subnet_candidates(self.session_id, challenge_name))
 
 
 def _next_session_number(prefix: str) -> int:

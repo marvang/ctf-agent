@@ -69,6 +69,7 @@ from src.utils.git import build_git_provenance
 from src.utils.run_ids import generate_run_id
 from src.utils.state_manager import persist_session
 from src.utils.vpn import connect_vpn, disconnect_vpn, discover_vpn_scripts, select_vpn_connect_script
+from src.utils.workspace import _ensure_sudo_ready
 
 # EXPERIMENT CONFIGURATION
 
@@ -186,7 +187,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--vpn-script", type=str, default=None, help="Explicit VPN connect script for VPN mode")
     parser.add_argument(
-        "--parallel", action="store_true", default=None, help="Run all local challenges concurrently (local mode only)"
+        "--parallel",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Run all local challenges concurrently (local mode only)",
     )
 
     return parser.parse_args()
@@ -386,12 +390,17 @@ def _stop_parallel_challenge_resources(challenges: list[str], session_runtime: S
     for challenge in challenges:
         kali_name = session_runtime.parallel_kali_name(challenge)
         container_name = session_runtime.challenge_container_name(challenge)
+        network_name = session_runtime.parallel_network_name(challenge)
         try:
             stop_kali_container(kali_name)
         except Exception:
             pass
         try:
             stop_challenge_container_standalone(container_name)
+        except Exception:
+            pass
+        try:
+            stop_network(network_name)
         except Exception:
             pass
 
@@ -457,15 +466,32 @@ def run_single_challenge(
     workspace_dir = session_runtime.challenge_workspace_dir(challenge) if parallel else session_runtime.workspace_dir
     target_ip = ""
 
+    # In parallel mode, each challenge gets its own isolated Docker network
+    if parallel:
+        challenge_network = session_runtime.parallel_network_name(challenge)
+        challenge_subnet_candidates = session_runtime.parallel_subnet_candidates(challenge)
+    else:
+        challenge_network = session_runtime.network_name
+        challenge_subnet_candidates = ()
+
     send_challenge_start_message(channel_id=channel_id, challenge=challenge, index=idx, total=total)
 
     try:
+        if is_local and parallel:
+            print(f"\n🌐 [{challenge}] Creating isolated network '{challenge_network}'...")
+            challenge_subnet = start_network(
+                challenge_network,
+                challenge_subnet_candidates[0] if challenge_subnet_candidates else "",
+                subnet_candidates=list(challenge_subnet_candidates),
+            )
+            print(f"✅ [{challenge}] Network ready (subnet {challenge_subnet})")
+
         if is_local:
             print(f"\n📦 [{challenge}] Starting vulnerable container")
             target_ip = start_challenge_container_standalone(
                 challenge_name=challenge,
                 container_name=challenge_container_name,
-                network_name=session_runtime.network_name,
+                network_name=challenge_network,
             )
             print(f"✅ [{challenge}] Container started at {target_ip}")
 
@@ -482,7 +508,7 @@ def run_single_challenge(
         if is_local:
             kali_ok = start_kali_container_standalone(
                 kali_name,
-                session_runtime.network_name,
+                challenge_network,
                 workspace_dir,
                 include_host_ports=not parallel,
             )
@@ -553,7 +579,7 @@ def run_single_challenge(
             workspace_dir=workspace_dir,
             environment_mode=ENVIRONMENT_MODE,
             session_id=session_runtime.session_id,
-            network_name=session_runtime.network_name,
+            network_name=challenge_network,
             subnet=session_runtime.subnet,
             artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
             vpn_connect_script=vpn_connect_script,
@@ -564,7 +590,7 @@ def run_single_challenge(
         result["target_ip"] = result.get("target_ip") or target_ip
         result["environment_mode"] = result.get("environment_mode") or ENVIRONMENT_MODE
         result["session_id"] = session_runtime.session_id
-        result["network_name"] = session_runtime.network_name
+        result["network_name"] = challenge_network
         result["subnet"] = session_runtime.subnet
         result["workspace_dir"] = os.path.abspath(workspace_dir)
         result["kali_container_name"] = kali_name
@@ -618,7 +644,7 @@ def run_single_challenge(
             "target_ip": target_ip if target_ip else VPN_TARGET_IP,
             "environment_mode": ENVIRONMENT_MODE,
             "session_id": session_runtime.session_id,
-            "network_name": session_runtime.network_name,
+            "network_name": challenge_network,
             "subnet": session_runtime.subnet,
             "workspace_dir": os.path.abspath(workspace_dir),
             "kali_container_name": kali_name,
@@ -645,6 +671,9 @@ def run_single_challenge(
             stop_kali_container(kali_name)
             print(f"🧹 [{challenge}] Stopping vulnerable container")
             stop_challenge_container_standalone(challenge_container_name)
+            if parallel:
+                print(f"🧹 [{challenge}] Removing isolated network")
+                stop_network(challenge_network)
 
 
 def main() -> None:
@@ -790,6 +819,9 @@ def main() -> None:
         if use_parallel:
             print(f"\n🚀 Parallel mode: {len(challenges_to_run)} challenges, {MAX_PARALLEL_WORKERS} workers")
             print(f"⚠️  This will run up to {MAX_PARALLEL_WORKERS * 2} Docker containers simultaneously")
+
+            # Pre-warm sudo before spawning threads to avoid concurrent stdin races
+            _ensure_sudo_ready()
 
             results_lock = threading.Lock()
             recorded_futures: set[Future[dict[str, Any]]] = set()
