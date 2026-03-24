@@ -38,14 +38,14 @@ Feature work uses git worktrees under `~/work/AI-for-cyber/ctf-agent-worktrees/`
 
 **Never delete a worktree unless its feature branch has been merged into master.** Open PRs need their worktrees for continued development. Only clean up after the PR is merged.
 
-Before making changes for an existing PR or feature branch, first verify which branch the PR targets and whether a matching worktree already exists. Do that before editing any files. If the task is to fix a reviewed PR, do not implement the fix in the main checkout or on `master`; switch to the correct feature worktree under `~/work/AI-for-cyber/ctf-agent-worktrees/`, or create one for that branch first. If you are in the wrong checkout, stop and correct that before writing code.
+Before making changes for an existing PR or feature branch, first verify which branch the PR targets and whether a matching worktree already exists. Do that before editing any files. If the task is to fix a reviewed PR on a feature branch, do not implement the fix in the main checkout or on `master`; switch to the correct feature worktree under `~/work/AI-for-cyber/ctf-agent-worktrees/`, or create one for that branch first. If the user explicitly says the fix is for `master` or explicitly instructs you to stay on `master`, follow that. If you are in the wrong checkout, stop and correct that before writing code.
 
 Preferred verification sequence before coding:
 1. `git branch -vv` or inspect the PR to identify the correct branch.
 2. `git worktree list` to find the matching worktree.
 3. `cd` into that worktree and verify with `git rev-parse --abbrev-ref HEAD`.
 
-The main checkout is not the default place for PR fixes. Treat it as shared infrastructure and only use it when the task is explicitly about `master` itself.
+The main checkout is not the default place for PR fixes. Treat it as shared infrastructure and only use it when the task is explicitly about `master` itself or the user explicitly tells you to fix on `master`.
 
 ## Dependency Lockfile
 Treat `uv.lock` as generated state, not hand-merged source.

@@ -84,7 +84,7 @@ CHALLENGE_CUSTOM_INSTRUCTIONS = TEST_CHALLENGE_CUSTOM_INSTRUCTIONS if TEST_RUN e
 MODEL_NAME = "minimax/minimax-m2.7"
 # Model names for quick access: anthropic/claude-sonnet-4.6, anthropic/claude-opus-4.6, openai/gpt-5.4-mini, minimax/minimax-m2.5:free, minimax/minimax-m2.7, cognitivecomputations/dolphin-mistral-24b-venice-edition:free, xiaomi/mimo-v2-pro
 CHAP_ENABLED = False
-MAX_ITERATIONS = 100
+MAX_ITERATIONS = 60
 COMMAND_TIMEOUT = 220
 MAX_COST = 5
 
@@ -99,7 +99,8 @@ CHAP_MIN_ITERATIONS_FOR_RELAY = 30  # Minimum iterations before manual relay is 
 
 DISCORD_NOTIFICATIONS_ENABLED = True  # Set to False, to enable you need to set DISCORD_MAIN_BOT_TOKEN and DISCORD_GUILD_ID in .env which you can get from your Discord developer portal after creating an application and bot
 RESULTS_DIR = "./results"
-EXPERIMENT_SET_NAME = "parallel-smoke"
+EXPERIMENT_SET_NAME = "post-merge-parallel"
+EXPERIMENT_PURPOSE: str | None = None  # Optional free-text purpose, saved in metadata (pass via --purpose)
 ENVIRONMENT_MODE: EnvironmentType = "local"  # "local", "private", or "htb"
 
 # --- Local Docker mode ---
@@ -112,16 +113,16 @@ CTF_CHALLENGES = [
     "vm4",
     "vm5",
     "vm6",
-    # "vm7",
-    # "vm8",
-    # "vm9",
-    # "vm10",
+    "vm7",
+    "vm8",
+    "vm9",
+    "vm10",
 ]
 LOCAL_FLAG_DIR = LOCAL_CHALLENGES_ROOT_STR  # Directory containing per-challenge flag.txt files
 LOCAL_ARCH: LocalArch = "aarch64"  # Architecture-specific prompt selection for local challenge runs
 SERVICE_STARTUP_DELAY = 30  # Only for local mode.
 PARALLEL_MODE = True  # Run local challenges concurrently instead of sequentially.
-MAX_PARALLEL_WORKERS = 3  # Max challenges to run at the same time in parallel mode.
+MAX_PARALLEL_WORKERS = 6  # Max challenges to run at the same time in parallel mode.
 PARALLEL_INTERRUPT_DRAIN_TIMEOUT_SECONDS = 5.0  # Wait briefly for interrupted workers to persist results.
 
 # --- VPN/Remote mode ---
@@ -192,6 +193,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Run all local challenges concurrently (local mode only)",
     )
+    parser.add_argument("--purpose", type=str, default=None, help="Free-text experiment purpose (saved in metadata)")
 
     return parser.parse_args()
 
@@ -201,7 +203,7 @@ def apply_cli_overrides(args: argparse.Namespace) -> None:
     global CHAP_ENABLED, EXPERIMENT_SET_NAME, CHAP_TOKEN_LIMIT_BASE
     global MODEL_NAME, CHAP_TOKEN_LIMIT_INCREMENT, CHAP_AUTO_TRIGGER
     global VPN_TARGET_IP, ENVIRONMENT_MODE, VPN_FLAGS_FILE, VPN_CONNECT_SCRIPT
-    global PARALLEL_MODE
+    global PARALLEL_MODE, EXPERIMENT_PURPOSE
 
     if args.chap_enabled is not None:
         CHAP_ENABLED = args.chap_enabled
@@ -226,6 +228,8 @@ def apply_cli_overrides(args: argparse.Namespace) -> None:
         VPN_CONNECT_SCRIPT = args.vpn_script
     if args.parallel is not None:
         PARALLEL_MODE = args.parallel
+    if args.purpose is not None:
+        EXPERIMENT_PURPOSE = args.purpose
 
 
 def get_custom_instructions_for_challenge(challenge_name: str) -> str:
@@ -287,6 +291,7 @@ def save_results(
         "chap_min_iterations_for_relay": CHAP_MIN_ITERATIONS_FOR_RELAY,
         "service_startup_delay_seconds": SERVICE_STARTUP_DELAY,
         "experiment_set_name": EXPERIMENT_SET_NAME,
+        "purpose": EXPERIMENT_PURPOSE,
         "discord_notifications_enabled": DISCORD_NOTIFICATIONS_ENABLED,
         "environment_mode": ENVIRONMENT_MODE,
         "target_ip": VPN_TARGET_IP if uses_vpn(ENVIRONMENT_MODE) else None,
@@ -855,6 +860,22 @@ def main() -> None:
                         recorded_futures,
                     )
                     print(f"✅ [{futures[future]}] Complete ({len(results)}/{total_challenges})")
+
+                    # Incremental save so monitoring tools see per-challenge
+                    # summary.json and updated completed_challenges count.
+                    with results_lock:
+                        results_snapshot = list(results)
+                    save_results(
+                        results_snapshot,
+                        results_dir,
+                        session_runtime,
+                        challenges_to_run,
+                        experiment_dir,
+                        experiment_id,
+                        termination_reason,
+                        vpn_connect_script,
+                        parallel_mode=use_parallel,
+                    )
             except KeyboardInterrupt:
                 interrupted = True
                 print("\n⚠️  Interrupt received — cancelling pending challenges...")

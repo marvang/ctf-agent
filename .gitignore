@@ -25,5 +25,6 @@ results/
 context_for_execution_model_change.txt
 .claude/*
 !.claude/settings.json
+!.claude/skills/
 .claude/settings.local.json
 .claude/worktrees/

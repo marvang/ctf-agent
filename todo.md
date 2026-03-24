@@ -11,20 +11,11 @@ Keep the current run metadata as-is for now, but design a richer target-scope re
 ### Inject flag signatures into VPN agent custom instructions
 `build_flag_hint_text()` exists in `validate_flag.py` but is currently unused. When real flags are available (not dummy), inject flag signatures into the agent's custom instructions so it knows what to look for. Currently disabled to avoid confusing the agent with dummy flag signatures during testing.
 
-### Modular experiment runner (single-challenge + batch)
-Refactor `scripts/run_experiment.py` into two scripts: one for single-challenge runs (both local and VPN), and one for batch orchestration (local Docker challenges). The single-challenge script would be the core, and the batch script would call it in a loop. This would simplify the if/else branching between local and VPN modes and allow VPN batch runs in the future.
-
-### Replace Discord notifications with lightweight experiment updates skill
-Remove Discord bot integration. Replace with a Claude Code skill that writes concise experiment progress to an `updates.md` file in the experiment directory. The skill reads and appends to it each time the user asks, producing a short mobile-readable status report. Reduces dependency bloat and legacy code.
-
-### Parallel local experiment mode — run all Docker challenges concurrently
-Add a `PARALLEL_MODE` constant and `--parallel` flag to `scripts/run_experiment.py` that runs all 11 local Docker challenges at the same time instead of sequentially. Each challenge would get its own session-scoped resources (Kali container, challenge container, network, workspace) — essentially auto-generating a `--session-id` per challenge. This would dramatically reduce total experiment wall-clock time from ~11×T to ~1×T. Requires: auto-session-id generation per challenge, concurrent agent loops (threads or asyncio), aggregated result collection, and a resource ceiling guard (Docker memory/CPU) to avoid overloading the host.
+### Multi-flag support for VPN and local challenges
+Investigate multi-flag handling for VPN mode (up to ~26 flags per challenge) and potentially multi-flag local challenges. Currently `experiment_status.py` returns a single `flag_captured` string and `flag_valid` boolean per challenge. Needs: updated result schema, `experiment_status.py` changes, flag validation updates, and `/live-updates` skill already has flexible flag display instructions (`flag:3/26` format).
 
 ### Human-in-the-loop (HITL)
 Add a human-in-the-loop mode where the agent can pause and ask the operator for guidance during a challenge run. Useful for debugging agent behavior, providing hints on stuck challenges, and supervised runs where a human monitors progress and can intervene.
-
-### Clean up orphaned branches and worktrees
-Delete stale remote branches after their PRs are merged or closed, and prune any leftover local worktrees. Known stale branches: `worktree-agent-a0403f31` (PR #2 merged), `worktree-agent-a28f5543`, `worktree-agent-ad564b46`, `worktree-agent-a8138c8b`, `claude/research-mobile-coding-o3jPH`, `add-claude-github-actions-1773787370711`.
 
 ## In Review
 
@@ -52,3 +43,4 @@ Fixes applied (relay handoff, pexpect deps, empty command guard). Mergeable as e
 - [x] Unify `MAX_OUTPUT_LENGTH` constant (12000) across entry points
 - [x] Fix hardcoded container name in docker_exec.py error message
 - [x] Add unit tests for `flag_match()`, `get_expected_flag()`, `truncate_output()`, `strip_ansi_escape_codes()`
+- [x] Add parallel local experiment mode — run all Docker challenges concurrently (PR #11)
