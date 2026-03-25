@@ -28,20 +28,24 @@ Every invocation of this skill must go through these steps in order. Do NOT skip
 Scan `results/` and present the most recent/relevant experiment runs. Show a pick list:
 
 ```bash
-# Find all experiment directories and their summaries
+# Find all experiment directories, summaries, and existing analysis artifacts
 find results/ -name "experiment_summary.json" -type f
+find results/ -name "analysis.md" -type f
+find results/ -name "updates.md" -type f
 ```
 
-Read each `experiment_summary.json` to extract: timestamp, model, challenge count, success count, termination reason, and experiment set name. Then present:
+Read each `experiment_summary.json` to extract: timestamp, model, challenge count, success count, termination reason, and experiment set name. Also check which runs already have `analysis.md` or `updates.md` in their directory. Then present:
 
 ```
 ## Recent Experiment Runs
 
-| # | Name | When | Model | Challenges | Successes | Status |
-|---|------|------|-------|------------|-----------|--------|
-| 1 | pre-commit-smoke | Today 3:12 PM | mimo-v2-pro | 11 | 8/11 | completed |
-| 2 | pre-commit-smoke | Yesterday 8:45 PM | minimax-m2.5:free | 11 | 6/11 | completed |
-| 3 | vpn-kth | Mar 16, 7:06 PM | claude-sonnet-4.6 | 3 | 1/3 | interrupted |
+| # | Name | When | Model | Challenges | Successes | Status | Notes |
+|---|------|------|-------|------------|-----------|--------|-------|
+| 1 | pre-commit-smoke | Today 3:12 PM | mimo-v2-pro | 11 | 8/11 | completed | analyzed, monitored |
+| 2 | pre-commit-smoke | Yesterday 8:45 PM | minimax-m2.5:free | 11 | 6/11 | completed | monitored |
+| 3 | vpn-kth | Mar 16, 7:06 PM | claude-sonnet-4.6 | 3 | 1/3 | interrupted | |
+
+Notes column: "analyzed" if analysis.md exists, "monitored" if updates.md exists, blank if neither.
 
 Which run(s) do you want to analyze?
 - Pick by number (e.g. "1", "1 and 2" to compare)
@@ -52,35 +56,22 @@ Format timestamps as relative when recent ("Today 3:12 PM", "Yesterday 8:45 PM")
 
 **STOP HERE and wait for the user's answer before proceeding.**
 
-### Step 2: Ask what they wanted to test
+### Steps 2-3: Intent and code context (one stop)
 
-After the user picks a run, ask directly:
+After the user picks a run, ask both questions together in a single message:
 
 ```
-What did you want to test with this experiment?
+What did you want to test with this experiment? And should I load code context?
+(git diff / specific commit hash / skip)
 ```
 
 **STOP HERE and wait for the user's answer before proceeding.**
 
 This is the most important question — the entire analysis is framed around whether the experiment achieved what the user intended. Their answer might be "testing the new parallel mode", "smoke testing after a refactor", "checking if vm7 works with a different model", etc.
 
-### Step 3: Load code context
-
-After understanding the user's intent, ask how to load the relevant code context:
-
-```
-How should I load the code changes being tested?
-
-1. **git diff** — there are uncommitted changes right now
-2. **A specific commit** — the changes have been committed (give me the hash or I'll check recent commits)
-3. **Skip** — the context from your explanation above is sufficient
-```
-
-**STOP HERE and wait for the user's answer before proceeding.**
-
-If the user picks option 1, run `git diff --stat HEAD` and `git diff HEAD` (or targeted file reads for large diffs).
-If the user picks option 2, run `git show --stat <hash>` and read the relevant diffs.
-If the user picks option 3, proceed with only the user's explanation from Step 2.
+If the user picks git diff, run `git diff --stat HEAD` and `git diff HEAD` (or targeted file reads for large diffs).
+If the user gives a commit hash, run `git show --stat <hash>` and read the relevant diffs.
+If the user says skip (or their answer makes code context clearly unnecessary), proceed without it.
 
 ### Step 4: Analyze
 
@@ -114,9 +105,9 @@ For each challenge with a session.json:
 uv run python scripts/extract_session.py results/<run>/<challenge>/session.json --output /tmp/compact_<challenge>.json
 ```
 
-2. Check compact file size:
+2. Check compact file word count (approximates tokens):
 ```bash
-wc -c /tmp/compact_<challenge>.json
+wc -w /tmp/compact_<challenge>.json
 ```
 
 Then launch agents **in parallel** (single message, multiple Agent tool calls):
@@ -127,25 +118,26 @@ Then launch agents **in parallel** (single message, multiple Agent tool calls):
 - Reads: git diff or commit context, experiment_summary.json
 - Returns: code assessment paragraph
 
-**Agent B — SESSION analysis (one per challenge):**
+**Agent B — SESSION analysis (one agent per challenge, never batch multiple challenges into one agent):**
 - Model: depends on mode (see model selection below)
 - Task: Trace agent strategy, identify key decisions/pivots, explain success/failure
 - Reads: `/tmp/compact_<challenge>.json` and challenge `summary.json`
-- Prompted with user's intent from step 2 to frame analysis
+- Prompted with user's intent from steps 2-3 to frame analysis
 - Returns: per-challenge narrative (2-3 paragraphs)
 
 ### Model Selection for Session Agents
 
-**VPN mode** (`environment_mode` is `private` or `htb`) — this is the important mode:
-- Always use **sonnet** for session analysis
-- If compact file fits in sonnet context (< 600KB) → one sonnet agent gets everything
-- If compact file too large for one sonnet → **split**: sonnet for beginning+end (most important — initial strategy and final result), haiku agent(s) for middle sections (each haiku gets up to ~300KB)
-- This ensures full session coverage even for 500+ iteration VPN runs
+Use word count (`wc -w`) as a proxy for token count. Sonnet context ~200k tokens, haiku ~100k tokens.
 
-**Local mode** (`environment_mode` is `local`) — 11 challenges, shorter sessions:
-- Always use **haiku** for everything
+**VPN mode** (`environment_mode` is `private` or `htb`) — always sonnet:
+- Compact file < 150k words → one sonnet agent gets everything
+- Compact file 150k-300k words → split across 2 sonnet agents (beginning+end to one, middle to another). Do this automatically without asking.
+- Compact file > 300k words (would need 3+ agents) → ask the user: "Session is very large (~Nk words). Use 3+ sonnet agents, or 1 sonnet (beginning+end) + haiku agents for the middle?"
+- Never drop information in VPN mode — always split, never truncate
+
+**Local mode** (`environment_mode` is `local`) — always haiku:
 - One haiku agent per challenge, all launched in parallel, each returns a summary
-- If a single challenge's compact session exceeds haiku context (~300KB) → use `--max-bytes 300000` flag on the extraction script to truncate middle and keep beginning+end
+- If a single challenge's compact session exceeds ~80k words → use `--max-bytes 300000` flag on the extraction script to truncate middle and keep beginning+end
 - CODE analysis agent also haiku in local mode
 
 ### Session Agent Prompt Template
@@ -251,29 +243,25 @@ When the user asks to compare two experiments:
 
 User: "analyze results"
 -> Step 1: list runs, ask which one
--> Step 2: ask what they wanted to test
--> Step 3: ask for code context
+-> Steps 2-3: ask intent + code context together
 -> Step 4: extract, launch agents, synthesize
 
 User: "analyze latest"
 -> Step 1: list runs (highlight the latest), still ask to confirm
--> Step 2: ask what they wanted to test
--> Step 3: ask for code context
+-> Steps 2-3: ask intent + code context together
 -> Step 4: extract, launch agents, synthesize
 
 User: "analyze latest, I was testing parallel mode with uncommitted changes"
 -> Step 1: list runs, highlight latest, confirm
--> Step 2: SKIP (intent already specified)
--> Step 3: use git diff (context implied by "uncommitted changes")
+-> Steps 2-3: SKIP both (intent given, code context implied → load git diff directly)
 -> Step 4: extract, launch agents, synthesize
 
 User: "why did vm7 fail in the smoke test?"
 -> Step 1: list runs from smoke-test, ask which
--> Step 2: ask what they wanted to test
--> Step 3: ask for code context
+-> Steps 2-3: ask intent + code context together
 -> Step 4: extract vm7 session only, launch session agent, synthesize
 
 User: "compare default and chap-enabled results"
 -> Step 1: list runs from both sets, ask which runs to compare
--> Step 2: ask for context source (what changed between the two)
--> Step 3: extract all sessions, launch agents for both, side-by-side comparison
+-> Steps 2-3: ask what changed between the two + code context
+-> Step 4: extract all sessions, launch agents for both, side-by-side comparison
