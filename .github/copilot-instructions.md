@@ -10,7 +10,7 @@ This is a research codebase targeting peer-reviewed publication. Any change that
 
 ## Focus review on behavioral correctness
 
-When reviewing PRs, focus on:
+For each change, reason about what breaks downstream if this is wrong. When reviewing PRs, focus on:
 - Logic errors, race conditions, and correctness issues in new or changed code
 - Security concerns (command injection, path traversal, credential exposure)
 - Breaking changes to the agent loop, result format, or Docker lifecycle
@@ -24,4 +24,4 @@ Do not flag:
 
 ## Project context
 
-This is a research framework where an LLM agent autonomously executes commands in Docker containers. Two entry points share similar agent loop logic by design (`main.py` and `src/experiment_utils/main_experiment_agent.py`) — duplication between them is intentional and documented. See `CLAUDE.md` for full architecture details.
+This is a research framework where an LLM agent autonomously executes commands in Docker containers. Two entry points share similar agent loop logic by design (`main.py` and `src/experiment_utils/main_experiment_agent.py`) — duplication between them is intentional and documented. See `CLAUDE.md` and `AGENTS.md` for full architecture details and coding guidelines.

@@ -68,6 +68,9 @@ When reviewing code for cleanup or refactoring:
 - **Duplication across entry points is a known tradeoff.** `main.py` and `main_experiment_agent.py` share similar loop logic by design. Extracting it is high-risk, not a casual cleanup.
 - **Don't optimize what doesn't matter.** Focus on changes that improve maintainability or prevent real bugs, not micro-optimizations.
 
+## Git Workflow
+Never commit, push, or delete branches/files without explicit user approval. When you finish a piece of work, suggest a short commit message — one line, imperative tense — and wait for the user to act on it.
+
 ## Commit & Pull Request Guidelines
 Recent history uses short imperative subjects without prefixes, for example `update readme` and `Remove legacy references and delete unused code`. Keep commit messages brief, specific, and action-oriented. PRs should explain the runtime or research impact, list the commands you ran, and call out any required Docker, VPN, or `.env` setup changes. Include screenshots only when updating generated figures or user-facing terminal flows.
 

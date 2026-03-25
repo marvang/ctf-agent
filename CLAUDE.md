@@ -49,6 +49,10 @@ Ruff is configured in `ruff.toml`. Enabled rule sets: pycodestyle (E/W), pyflake
 
 Mypy is configured in `pyproject.toml` with `strict = true`. All functions have type hints. Run `uv run mypy .` and ensure it passes before committing. Both ruff and mypy run as pre-commit hooks.
 
+## Git Workflow
+
+Never commit, push, or delete branches/files without explicit user approval. When you finish a piece of work, suggest a short commit message — one line, imperative tense — and wait for the user to act on it.
+
 ## Manual Validation Before Push
 
 Whenever you build something new, add a feature, do a refactor, or make any meaningful behavior change, do not rely on code-level tests alone before pushing. Launch the actual agent and exercise it against the relevant real target setup first: Hack The Box, Docker mode, and/or the private VPN environment as appropriate to the change. Use one environment or all of them if needed, but always do a real end-to-end run before push.
