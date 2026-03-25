@@ -338,7 +338,6 @@ def save_results(
     with open(summary_path, "w") as f:
         json.dump({"metadata": experiment_metadata}, f, indent=2)
 
-    print(f"💾 Results saved to {experiment_dir}")
 
 
 def _append_parallel_result(
@@ -756,6 +755,7 @@ def main() -> None:
             vpn_connect_script,
             parallel_mode=use_parallel,
         )
+        print(f"📋 Experiment metadata saved to {experiment_dir}")
         if use_parallel:
             print(f"\n🚀 Parallel mode: {len(challenges_to_run)} challenges, {MAX_PARALLEL_WORKERS} workers")
             print(f"⚠️  This will run up to {MAX_PARALLEL_WORKERS * 2} Docker containers simultaneously")
@@ -811,6 +811,7 @@ def main() -> None:
                         vpn_connect_script,
                         parallel_mode=use_parallel,
                     )
+                    print(f"💾 Challenge results saved to {experiment_dir}")
             except KeyboardInterrupt:
                 interrupted = True
                 print("\n⚠️  Interrupt received — cancelling pending challenges...")
@@ -847,6 +848,7 @@ def main() -> None:
                 vpn_connect_script,
                 parallel_mode=use_parallel,
             )
+            print(f"💾 Challenge results saved to {experiment_dir}")
 
         else:
             # Sequential mode (original behavior)
@@ -883,6 +885,7 @@ def main() -> None:
                     vpn_connect_script,
                     parallel_mode=use_parallel,
                 )
+                print(f"💾 Challenge results saved to {experiment_dir}")
 
     except KeyboardInterrupt:
         termination_reason = "interrupted_by_user"
@@ -898,6 +901,7 @@ def main() -> None:
             vpn_connect_script,
             parallel_mode=use_parallel,
         )
+        print(f"💾 Partial results saved to {experiment_dir}")
 
     except Exception as e:
         termination_reason = f"error: {e}"
@@ -916,6 +920,7 @@ def main() -> None:
             vpn_connect_script,
             parallel_mode=use_parallel,
         )
+        print(f"💾 Partial results saved to {experiment_dir}")
 
     else:
         termination_reason = "completed"
@@ -930,6 +935,7 @@ def main() -> None:
             vpn_connect_script,
             parallel_mode=use_parallel,
         )
+        print(f"💾 Final results saved to {experiment_dir}")
 
         print("\n" + "=" * 80)
         print("EXPERIMENT SUITE COMPLETE")

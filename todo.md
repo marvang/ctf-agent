@@ -11,8 +11,18 @@ Keep the current run metadata as-is for now, but design a richer target-scope re
 ### Inject flag signatures into VPN agent custom instructions
 `build_flag_hint_text()` exists in `validate_flag.py` but is currently unused. When real flags are available (not dummy), inject flag signatures into the agent's custom instructions so it knows what to look for. Currently disabled to avoid confusing the agent with dummy flag signatures during testing.
 
-### Multi-flag support for VPN and local challenges
-Investigate multi-flag handling for VPN mode (up to ~26 flags per challenge) and potentially multi-flag local challenges. Currently `experiment_status.py` returns a single `flag_captured` string and `flag_valid` boolean per challenge. Needs: updated result schema, `experiment_status.py` changes, flag validation updates, and `/live-updates` skill already has flexible flag display instructions (`flag:3/26` format).
+### Multi-flag support for VPN challenges
+Full multi-flag handling for VPN mode (up to ~26 flags per range). Currently `flag_captured` is a single text blob and `flag_valid` is one boolean — no per-flag granularity.
+
+**Blocked:** Dynamic flag retrieval script from coworker (replaces `flags_example.json` dummy flags). Once available, implement correct flag loading and validation.
+
+**Prompt fix (do first):** Reword system prompt flag submission instructions. Current: "write flag then exit". Needed: "Write each flag to `/ctf-workspace/flags.txt` as you find it. The number of flags will be specified in custom instructions. Exit only after all flags are found and written." This prevents early exit after first flag with weaker models.
+
+**Per-flag result schema:** Replace single `flag_valid: bool` and `flag_captured: str` with per-flag entries using the `signature` field from flags JSON to match captured flags independently. Report partial success (e.g., 5/8 flags valid).
+
+**Post-hoc session replay (Tier 2):** After a run completes, scan `session.json` events for flag signatures to record per-flag discovery iteration and timestamp. Zero agent-loop changes, works retroactively on existing runs. Gives per-flag timing for the paper without touching the core experiment flow.
+
+**Submit-flag tool (Tier 3):** Create a dedicated flag submission mechanism so the agent gets instant verification upon submitting each flag (valid/invalid/duplicate). This replaces the current "write to flags.txt" approach with structured interaction and gives real-time per-flag tracking. Design considerations: could be a special command the agent sends (e.g., `submit_flag{...}`), a script mounted in the container, or an API the agent calls. Instant feedback lets the agent know when to stop and avoids wasted iterations after all flags are found.
 
 ### Human-in-the-loop (HITL)
 Add a human-in-the-loop mode where the agent can pause and ask the operator for guidance during a challenge run. Useful for debugging agent behavior, providing hints on stuck challenges, and supervised runs where a human monitors progress and can intervene. Blocked on learning Temporal or DBOS first — pick one for durable workflow orchestration.
@@ -47,3 +57,4 @@ Fixes applied. On hold until core features are complete. Open items: parsing reg
 - [x] Fix hardcoded container name in docker_exec.py error message
 - [x] Add unit tests for `flag_match()`, `get_expected_flag()`, `truncate_output()`, `strip_ansi_escape_codes()`
 - [x] Add parallel local experiment mode — run all Docker challenges concurrently (PR #11)
+- [x] Remove Discord integration, replaced with Claude Code skill `/live-updates`

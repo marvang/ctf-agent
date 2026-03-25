@@ -564,7 +564,7 @@ def run_experiment_agent(
     print(f"💰 Cost: ${session['metrics']['total_cost']:.4f}")
     print(f"🛑 Stopping Reason: {stopping_reason}")
     print(f"🤖 Final Agent Number: {session['agent_number']}")
-    print(f"🏴 Flag: {captured_flag if captured_flag else 'No flag detected/captured'}")
+    print(f"🏴 Flags: {captured_flag if captured_flag else 'No flag detected/captured'}")
     if error_message:
         print(f"❌ Error: {error_message}")
     print("=" * 60)

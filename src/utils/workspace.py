@@ -233,17 +233,18 @@ def cleanup_workspace(
     if items_to_delete or files_to_empty_list:
         print("\n🧹 Workspace cleanup:")
 
-        if items_to_delete:
-            print(f"\n🗑️  Will DELETE {len(items_to_delete)} item(s):")
-            for item in items_to_delete[:5]:
-                print(f"   - {os.path.basename(item)}")
-            if len(items_to_delete) > 5:
-                print(f"   ... and {len(items_to_delete) - 5} more")
+        if not auto_confirm:
+            if items_to_delete:
+                print(f"\n🗑️  Will DELETE {len(items_to_delete)} item(s):")
+                for item in items_to_delete[:5]:
+                    print(f"   - {os.path.basename(item)}")
+                if len(items_to_delete) > 5:
+                    print(f"   ... and {len(items_to_delete) - 5} more")
 
-        if files_to_empty_list:
-            print("\n📝 Will EMPTY (keep file, clear contents):")
-            for filename in files_to_empty_list:
-                print(f"   - {filename}")
+            if files_to_empty_list:
+                print("\n📝 Will EMPTY (keep file, clear contents):")
+                for filename in files_to_empty_list:
+                    print(f"   - {filename}")
 
         wipe_choice = "y" if auto_confirm else input("\n🧹 Proceed with cleanup? (y/n) [y]: ").strip().lower()
 
