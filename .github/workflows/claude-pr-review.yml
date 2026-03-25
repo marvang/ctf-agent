@@ -25,11 +25,10 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: '--max-turns 20'
           prompt: |
             You are reviewing code that produces experimental data for peer-reviewed publication. Think like a skeptical peer reviewer — for each change, reason about what breaks downstream if this is wrong. Not just whether the code is correct, but what silent damage it could cause to results, reproducibility, or experiment validity.
 
-            You have a 20-turn limit. Prioritize reading the diff and posting comments over deep exploration. Read CLAUDE.md and .github/copilot-instructions.md for project context.
+            Read CLAUDE.md and .github/copilot-instructions.md for project context.
 
             Pay special attention to:
             - Changes that could silently corrupt experiment results or metrics

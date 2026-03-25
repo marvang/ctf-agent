@@ -1,0 +1,267 @@
+name: PR Review Synthesis
+
+on:
+  workflow_run:
+    workflows: ["Claude PR Review"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to synthesize"
+        required: true
+        type: string
+
+jobs:
+  synthesize:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            PR=$(gh pr list --repo "$REPO" --state open --json number,headRefName \
+              --jq ".[] | select(.headRefName==\"${{ github.event.workflow_run.head_branch }}\") | .number")
+            if [ -z "$PR" ]; then
+              echo "::error::Could not find open PR for branch ${{ github.event.workflow_run.head_branch }}"
+              exit 1
+            fi
+            echo "number=$PR" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wait for all reviewers
+        if: github.event_name != 'workflow_dispatch'
+        run: |
+          echo "Waiting 20 minutes for Copilot and Codex to finish reviewing..."
+          sleep 1200
+
+      - name: Check reviewers present
+        id: check
+        run: |
+          PR=${{ steps.pr.outputs.number }}
+
+          # Get first commit SHA on this PR
+          FIRST_COMMIT=$(gh api repos/$REPO/pulls/$PR/commits --jq '.[0].sha')
+          echo "first_commit=$FIRST_COMMIT" >> "$GITHUB_OUTPUT"
+          FIRST_SHORT=${FIRST_COMMIT:0:7}
+
+          # Get all review comments
+          COMMENTS=$(gh api repos/$REPO/pulls/$PR/comments --paginate)
+
+          # Check Copilot
+          COPILOT=$(echo "$COMMENTS" | jq -r "[.[] | select(.user.login == \"Copilot\" or .user.login == \"copilot-pull-request-reviewer[bot]\") | select(.original_commit_id[:7] == \"$FIRST_SHORT\")] | length")
+
+          # Check Codex (comments OR thumbs-up reaction on PR)
+          CODEX=$(echo "$COMMENTS" | jq -r "[.[] | select(.user.login == \"chatgpt-codex-connector[bot]\") | select(.original_commit_id[:7] == \"$FIRST_SHORT\")] | length")
+          CODEX_REACTION=$(gh api repos/$REPO/issues/$PR/reactions --jq "[.[] | select(.user.login == \"chatgpt-codex-connector[bot]\" and .content == \"+1\")] | length" 2>/dev/null || echo "0")
+
+          MISSING=""
+          if [ "$COPILOT" = "0" ]; then
+            MISSING="${MISSING}Copilot "
+          fi
+          if [ "$CODEX" = "0" ] && [ "$CODEX_REACTION" = "0" ]; then
+            MISSING="${MISSING}Codex "
+          fi
+
+          if [ -n "$MISSING" ]; then
+            gh pr comment "$PR" --repo "$REPO" --body "## Synthesis Aborted
+
+          Missing reviews from: **${MISSING}**
+
+          Re-run manually when available:
+          \`\`\`
+          gh workflow run pr-review-synthesis.yml -f pr_number=$PR
+          \`\`\`"
+            echo "::error::Missing reviewers: $MISSING"
+            exit 1
+          fi
+
+          echo "All reviewers present. Copilot: $COPILOT comments, Codex: $CODEX comments (reaction: $CODEX_REACTION)"
+
+      - name: Collect reviews into reviews.json
+        run: |
+          PR=${{ steps.pr.outputs.number }}
+          FIRST_COMMIT=${{ steps.check.outputs.first_commit }}
+          FIRST_SHORT=${FIRST_COMMIT:0:7}
+
+          # Fetch all review comments and filter to first commit + unresolved only
+          gh api repos/$REPO/pulls/$PR/comments --paginate | python3 -c "
+          import json, sys
+
+          comments = json.load(sys.stdin)
+          first_short = '$FIRST_SHORT'
+
+          reviewers = {
+              'copilot': ['Copilot', 'copilot-pull-request-reviewer[bot]'],
+              'codex': ['chatgpt-codex-connector[bot]'],
+              'claude': []  # catch-all for other bots
+          }
+
+          result = {'copilot': [], 'codex': [], 'claude': []}
+
+          for c in comments:
+              login = c.get('user', {}).get('login', '')
+              commit_id = (c.get('original_commit_id') or '')[:7]
+
+              # Only first commit comments
+              if commit_id != first_short:
+                  continue
+
+              entry = {
+                  'id': c.get('node_id', ''),
+                  'path': c.get('path', ''),
+                  'line': c.get('line') or c.get('original_line'),
+                  'body': c.get('body', ''),
+                  'url': c.get('html_url', '')
+              }
+
+              if login in reviewers['copilot']:
+                  result['copilot'].append(entry)
+              elif login in reviewers['codex']:
+                  result['codex'].append(entry)
+              else:
+                  result['claude'].append(entry)
+
+          with open('reviews.json', 'w') as f:
+              json.dump(result, f, indent=2)
+
+          total = sum(len(v) for v in result.values())
+          print(f'Collected {total} comments: Copilot={len(result[\"copilot\"])}, Codex={len(result[\"codex\"])}, Claude={len(result[\"claude\"])}')
+          "
+
+      - name: Investigate and synthesize
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          use_sticky_comment: true
+          claude_args: '--model claude-opus-4-6-20250723'
+          prompt: |
+            You are the judge, not another reviewer. Three AI reviewers (Copilot, Codex, Claude) have already submitted their findings in `reviews.json`. Your job is to investigate each finding like a detective — cross-examine the evidence and deliver a ruling.
+
+            Read CLAUDE.md and .github/copilot-instructions.md for project context. This is a research codebase producing experimental data for peer-reviewed publication.
+
+            ## Investigation Process
+
+            For each finding in `reviews.json`:
+
+            1. **Read the actual code** at the referenced file:line. Do not take the reviewer's word for it.
+            2. **Examine through multiple lenses:**
+               - **Correctness** — Is the logic actually wrong? Trace the data flow. Check edge cases.
+               - **Security** — Command injection, path traversal, credential exposure, container escape.
+               - **Reproducibility** — Could this silently corrupt experiment results or break benchmark isolation?
+               - **Simplicity** — Is the proposed fix worth the complexity? Is there a simpler approach?
+               - **Entry point drift** — If the change touches agent loop logic, does it affect both `main.py` and `main_experiment_agent.py`?
+            3. **Render verdict** — Real issue or false positive? If multiple reviewers flagged the same thing, do they agree on severity and solution?
+            4. **Score** — Impact (1-5), Confidence (1-5), Fix Cost (1-5)
+            5. **Propose** — If worth fixing, proposed solution in max 2 sentences with file:line reference
+
+            Also flag issues the reviewers missed. Their comments are a starting point, not a ceiling.
+
+            ## Standing Rules
+            - Auto-dismiss experiment parameter changes in `scripts/run_experiment.py` (routine tweaks)
+            - Scientific rigor and reproducibility outweigh code style
+            - Findings flagged by multiple reviewers carry more weight than single-reviewer findings
+            - When reviewers disagree, investigate deeper — the disagreement itself is signal
+
+            ## Output: Decision Document
+
+            Post as a PR comment in this exact format:
+
+            ## PR Review Synthesis
+
+            ### Executive Summary
+            | # | Finding | File:Line | Impact | Conf | Cost | Reviewers | Verdict |
+            |---|---------|-----------|--------|------|------|-----------|---------|
+
+            Reviewers column: which of the 3 flagged it (e.g. "Copilot, Codex" or "Claude only").
+            Verdict: **Fix** (clear issue, you know what to do), **Skip** (false positive or not worth it), **Decision** (needs user input — reviewers disagree or trade-off is unclear).
+
+            ### Decision Points
+            For each Decision verdict: what the reviewers said, what you found on investigation, framed as a clear binary choice: "do X or do Y?"
+
+            ### Consensus Fixes
+            Findings where verdict is Fix. For each: one-line issue description + proposed solution.
+
+            ### Auto-dismissed
+            Items dismissed by standing rules, with brief reason.
+
+            ### Detailed Findings
+            Per-finding: which reviewers flagged it, their original comments, your investigation across all lenses, scores, and reasoning for the verdict.
+
+            The report must be self-contained. Do not offer to implement anything. List every decision point that requires user input.
+
+            Also write your verdicts to `verdicts.json` — an array of objects, one per finding:
+            ```json
+            [
+              {
+                "number": 1,
+                "finding": "Race in session ID",
+                "verdict": "Fix",
+                "impact": 4, "confidence": 5, "cost": 2,
+                "comment_ids": ["NODE_ID_1", "NODE_ID_2"],
+                "representative_id": "NODE_ID_1",
+                "duplicate_ids": ["NODE_ID_2"]
+              }
+            ]
+            ```
+            `comment_ids`: all comment node IDs from `reviews.json` that relate to this finding.
+            `representative_id`: the most detailed comment to keep visible.
+            `duplicate_ids`: comments to resolve as duplicates.
+            Include all findings — Fix, Skip, Decision, and Auto-dismissed.
+
+      - name: Annotate PR comments
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--model claude-haiku-4-5-20251001 --max-turns 15'
+          prompt: |
+            Read `verdicts.json` and `reviews.json`. Your job is to annotate the PR review comments based on the investigation verdicts. Do NOT re-investigate — just execute the annotations.
+
+            ## Step 1: Resolve threads that should be hidden
+
+            For each finding in `verdicts.json`:
+
+            **Resolve duplicates:** For every ID in `duplicate_ids`, resolve the thread:
+            ```
+            gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "NODE_ID"}) { thread { isResolved } } }'
+            ```
+
+            **Resolve confident skips:** If verdict=Skip AND confidence>=5, resolve ALL `comment_ids` for that finding.
+
+            **Resolve auto-dismissed:** If verdict contains "Auto-dismissed" or similar, resolve all `comment_ids`.
+
+            Do NOT resolve threads for Fix or Decision verdicts.
+
+            ## Step 2: React and score remaining (non-resolved) comments
+
+            For each finding where the `representative_id` was NOT resolved:
+
+            **Add emoji reaction** on the representative comment. Extract the numeric comment ID from the comment URL in `reviews.json` (the number after `/comments/`).
+            - verdict=Fix → `gh api repos/${{ github.repository }}/pulls/comments/{id}/reactions -f content="+1"`
+            - verdict=Decision → `gh api repos/${{ github.repository }}/pulls/comments/{id}/reactions -f content="confused"`
+            - verdict=Skip (confidence<5) → `gh api repos/${{ github.repository }}/pulls/comments/{id}/reactions -f content="-1"`
+
+            **Reply with scores** on the representative comment:
+            ```
+            gh api repos/${{ github.repository }}/pulls/comments/{id}/replies -f body="Impact:{impact} | Conf:{confidence} | Cost:{cost} → **{verdict}**"
+            ```
+
+            Keep replies to one line. No explanation — the full reasoning is in the synthesis report.
