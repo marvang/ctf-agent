@@ -1,6 +1,6 @@
 # CTF-Agent: AI-Driven Pentesting Framework
 
- This is a research framework for using AI agents that finds and exploits vulnerabilities to solve CTF challenges.
+This is a research framework for using AI agents that find and exploit vulnerabilities to solve CTF challenges.
 
 - Autonomous reconnaissance and exploitation
 - Optional CHAP context handoff for long-running sessions
