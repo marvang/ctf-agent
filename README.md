@@ -58,8 +58,6 @@ Then edit `.env`:
 OPENROUTER_API_KEY=sk-or-v1-your-api-key-here
 ```
 
-Discord settings are optional.
-
 ### 5. Build the Kali container
 
 ```bash

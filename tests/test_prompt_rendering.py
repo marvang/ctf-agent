@@ -10,9 +10,6 @@ import main
 import scripts.run_experiment as run_experiment
 import src.chap_utils.protocol_generator as protocol_generator
 import src.experiment_utils.main_experiment_agent as experiment_agent
-import src.utils.discord_utils.challenge_messages as challenge_messages
-import src.utils.discord_utils.error_messages as error_messages
-import src.utils.discord_utils.experiment_messages as experiment_messages
 from src.config.session_runtime import resolve_session_runtime
 from src.llm_utils.prompt_builder import build_initial_messages, build_relay_messages
 from src.utils.state_manager import (
@@ -379,7 +376,10 @@ class ParallelResultTests(unittest.TestCase):
         recorded_futures: set[Future[dict[str, object]]] = set()
         results_lock = threading.Lock()
 
-        def complete_late_future(pending_futures: list[Future[dict[str, object]]], timeout: float):
+        def complete_late_future(
+            pending_futures: list[Future[dict[str, object]]],
+            timeout: float,
+        ) -> tuple[set[Future[dict[str, object]]], set[Future[dict[str, object]]]]:
             self.assertEqual(pending_futures, [late_future])
             self.assertEqual(timeout, run_experiment.PARALLEL_INTERRUPT_DRAIN_TIMEOUT_SECONDS)
             late_future.set_result({"challenge_name": "vm1"})
@@ -427,7 +427,6 @@ class ParallelResultTests(unittest.TestCase):
                 patch.object(run_experiment, "PARALLEL_MODE", True),
                 patch.object(run_experiment, "MAX_PARALLEL_WORKERS", 2),
                 patch.object(run_experiment, "ENVIRONMENT_MODE", "local"),
-                patch.object(run_experiment, "DISCORD_NOTIFICATIONS_ENABLED", False),
                 patch.object(run_experiment, "start_network", return_value="10.210.0.0/24"),
                 patch.object(run_experiment, "save_results"),
                 patch.object(run_experiment, "run_single_challenge"),
@@ -631,82 +630,6 @@ class ExperimentErrorResultTests(unittest.TestCase):
                 self.assertFalse(result["iteration_limit_reached"])
                 self.assertEqual(result["total_time"], 0.0)
                 self.assertEqual(result["total_cost"], 0.0)
-
-
-class DiscordNotificationTests(unittest.TestCase):
-    @patch.object(error_messages, "_safe_send", return_value=True)
-    @patch.object(error_messages, "_create_embed", side_effect=lambda **kwargs: kwargs)
-    def test_send_empty_command_stop_message_uses_retry_limit(
-        self,
-        create_embed_mock: MagicMock,
-        safe_send_mock: MagicMock,
-    ) -> None:
-        result = error_messages.send_empty_command_stop_message(
-            channel_id="123456789",
-            context={"challenge": "vm0", "iteration": 8},
-            retry_limit=5,
-        )
-
-        self.assertTrue(result)
-        self.assertEqual(
-            create_embed_mock.call_args.kwargs["description"],
-            "Agent provided empty command 5 times consecutively and was stopped",
-        )
-        safe_send_mock.assert_called_once()
-
-    @patch.object(challenge_messages, "_safe_send", return_value=True)
-    @patch.object(challenge_messages, "_create_embed", side_effect=lambda **kwargs: kwargs)
-    def test_send_challenge_complete_message_marks_unvalidated_capture_explicitly(
-        self,
-        create_embed_mock: MagicMock,
-        safe_send_mock: MagicMock,
-    ) -> None:
-        result = challenge_messages.send_challenge_complete_message(
-            channel_id="123456789",
-            challenge="private",
-            result={
-                "flag_captured": "FLAG{captured}",
-                "flag_valid": None,
-                "iterations": 3,
-                "relay_count": 0,
-                "total_cost": 0.5,
-                "total_time": 12.0,
-                "stopping_reason": "agent_exit",
-                "session": {"agent_number": 1},
-            },
-        )
-
-        self.assertTrue(result)
-        self.assertEqual(create_embed_mock.call_args.kwargs["fields"][0]["value"], "ℹ️ Captured (Unvalidated)")
-        safe_send_mock.assert_called_once()
-
-    @patch.object(experiment_messages, "_safe_send", return_value=True)
-    @patch.object(experiment_messages, "_create_embed", side_effect=lambda **kwargs: kwargs)
-    def test_send_experiment_complete_message_includes_unvalidated_count(
-        self,
-        create_embed_mock: MagicMock,
-        safe_send_mock: MagicMock,
-    ) -> None:
-        result = experiment_messages.send_experiment_complete_message(
-            channel_id="123456789",
-            results=[],
-            metadata={
-                "total_challenges": 2,
-                "successful": 0,
-                "unvalidated": 1,
-                "failed": 1,
-                "total_cost": 1.0,
-                "total_time": 20.0,
-                "valid_flags": 0,
-            },
-        )
-
-        self.assertTrue(result)
-        self.assertIn(
-            {"name": "Unvalidated", "value": "📌 1", "inline": True},
-            create_embed_mock.call_args.kwargs["fields"],
-        )
-        safe_send_mock.assert_called_once()
 
 
 class ProtocolPromptTests(unittest.TestCase):

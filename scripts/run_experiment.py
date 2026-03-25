@@ -52,17 +52,6 @@ from src.experiment_utils.validate_flag import (
     get_expected_flag,
     load_flags_file,
 )
-from src.utils.discord_utils import (
-    create_experiment_channel,
-    send_challenge_complete_message,
-    send_challenge_error_message,
-    send_challenge_start_message,
-    send_docker_connection_error_message,
-    send_experiment_complete_message,
-    send_experiment_error_message,
-    send_experiment_interrupted_message,
-    send_experiment_start_message,
-)
 from src.utils.docker_utils import connect_to_docker
 from src.utils.environment import EnvironmentType, LocalArch, uses_vpn
 from src.utils.git import build_git_provenance
@@ -95,8 +84,6 @@ CHAP_AUTO_TRIGGER = (
     True  # If True, auto-trigger relay based on token limits; if False, only agent-initiated relay allowed
 )
 CHAP_MIN_ITERATIONS_FOR_RELAY = 30  # Minimum iterations before manual relay is allowed
-
-DISCORD_NOTIFICATIONS_ENABLED = True  # Set to False, to enable you need to set DISCORD_MAIN_BOT_TOKEN and DISCORD_GUILD_ID in .env which you can get from your Discord developer portal after creating an application and bot
 RESULTS_DIR = "./results"
 EXPERIMENT_SET_NAME = "test-sudo-fix"
 EXPERIMENT_PURPOSE: str | None = None  # Optional free-text purpose, saved in metadata (pass via --purpose)
@@ -291,7 +278,6 @@ def save_results(
         "service_startup_delay_seconds": SERVICE_STARTUP_DELAY,
         "experiment_set_name": EXPERIMENT_SET_NAME,
         "purpose": EXPERIMENT_PURPOSE,
-        "discord_notifications_enabled": DISCORD_NOTIFICATIONS_ENABLED,
         "environment_mode": ENVIRONMENT_MODE,
         "target_ip": VPN_TARGET_IP if uses_vpn(ENVIRONMENT_MODE) else None,
         "vpn_flags_file": VPN_FLAGS_FILE,
@@ -454,7 +440,6 @@ def run_single_challenge(
     session_runtime: SessionRuntime,
     experiment_dir: str,
     experiment_id: str,
-    channel_id: str | None,
     vpn_connect_script: str | None,
     flag_entries: list[FlagEntry],
     is_local: bool,
@@ -477,8 +462,6 @@ def run_single_challenge(
     else:
         challenge_network = session_runtime.network_name
         challenge_subnet_candidates = ()
-
-    send_challenge_start_message(channel_id=channel_id, challenge=challenge, index=idx, total=total)
 
     try:
         if is_local and parallel:
@@ -518,11 +501,6 @@ def run_single_challenge(
                 quiet=True,
             )
             if not kali_ok:
-                send_docker_connection_error_message(
-                    channel_id=channel_id,
-                    container_name=kali_name,
-                    context={"challenge": challenge, "experiment_id": experiment_id},
-                )
                 raise Exception(f"Failed to start Kali container {kali_name}")
 
         # Load expected flags
@@ -578,7 +556,6 @@ def run_single_challenge(
             chap_min_iterations_for_relay=CHAP_MIN_ITERATIONS_FOR_RELAY,
             kali_container_name=kali_name,
             custom_instructions=custom_instructions,
-            channel_id=channel_id,
             local_arch=LOCAL_ARCH,
             session_path=os.path.join(challenge_dir, "session.json"),
             workspace_dir=workspace_dir,
@@ -622,8 +599,6 @@ def run_single_challenge(
             print(f"🏴 {challenge} — flag captured (no ground truth to validate)")
         else:
             print(f"⚠️  {challenge} — no flag captured")
-
-        send_challenge_complete_message(channel_id=channel_id, challenge=challenge, result=result)
         return result
 
     except Exception as e:
@@ -631,10 +606,6 @@ def run_single_challenge(
         import traceback
 
         traceback.print_exc()
-
-        send_challenge_error_message(
-            channel_id=channel_id, challenge=challenge, error_msg=str(e), experiment_id=experiment_id
-        )
 
         return {
             "mode": "experiment_script",
@@ -734,14 +705,12 @@ def main() -> None:
     challenges_to_run = CTF_CHALLENGES if is_local else [EXPERIMENT_SET_NAME]
     results: list[dict[str, Any]] = []
     experiment_id = generate_run_id()
-    discord_experiment_id = f"{EXPERIMENT_SET_NAME}-{experiment_id}" if EXPERIMENT_SET_NAME else experiment_id
     results_dir = os.path.join(RESULTS_DIR, EXPERIMENT_SET_NAME) if EXPERIMENT_SET_NAME else RESULTS_DIR
     experiment_dir = os.path.join(results_dir, experiment_id)
     os.makedirs(experiment_dir, exist_ok=True)
     termination_reason = "in_progress"
     total_challenges = len(challenges_to_run)
     use_parallel = PARALLEL_MODE and is_local and total_challenges > 1
-    channel_id = None
 
     try:
         session_runtime.subnet = start_network(
@@ -787,24 +756,6 @@ def main() -> None:
             vpn_connect_script,
             parallel_mode=use_parallel,
         )
-
-        if DISCORD_NOTIFICATIONS_ENABLED:
-            channel_id = create_experiment_channel(discord_experiment_id)
-            if not channel_id:
-                print("⚠️  Failed to create Discord channel. Continuing without Discord notifications.")
-                print("   To enable: set DISCORD_MAIN_BOT_TOKEN, DISCORD_GUILD_ID in .env")
-            else:
-                send_experiment_start_message(
-                    channel_id=channel_id,
-                    experiment_id=experiment_id,
-                    config={
-                        "model": MODEL_NAME,
-                        "chap_enabled": CHAP_ENABLED,
-                        "challenges": challenges_to_run,
-                        "max_iterations": MAX_ITERATIONS,
-                        "max_cost": MAX_COST,
-                    },
-                )
         if use_parallel:
             print(f"\n🚀 Parallel mode: {len(challenges_to_run)} challenges, {MAX_PARALLEL_WORKERS} workers")
             print(f"⚠️  This will run up to {MAX_PARALLEL_WORKERS * 2} Docker containers simultaneously")
@@ -827,7 +778,6 @@ def main() -> None:
                         session_runtime=session_runtime,
                         experiment_dir=experiment_dir,
                         experiment_id=experiment_id,
-                        channel_id=channel_id,
                         vpn_connect_script=vpn_connect_script,
                         flag_entries=flag_entries,
                         is_local=is_local,
@@ -912,7 +862,6 @@ def main() -> None:
                     session_runtime=session_runtime,
                     experiment_dir=experiment_dir,
                     experiment_id=experiment_id,
-                    channel_id=channel_id,
                     vpn_connect_script=vpn_connect_script,
                     flag_entries=flag_entries,
                     is_local=is_local,
@@ -950,10 +899,6 @@ def main() -> None:
             parallel_mode=use_parallel,
         )
 
-        send_experiment_interrupted_message(
-            channel_id=channel_id, partial_results=len(results), total_challenges=total_challenges
-        )
-
     except Exception as e:
         termination_reason = f"error: {e}"
         print(f"\n❌ Experiment aborted due to unexpected error: {e}")
@@ -971,8 +916,6 @@ def main() -> None:
             vpn_connect_script,
             parallel_mode=use_parallel,
         )
-
-        send_experiment_error_message(channel_id=channel_id, error_msg=str(e), partial_results=len(results))
 
     else:
         termination_reason = "completed"
@@ -1007,21 +950,6 @@ def main() -> None:
         print(f"  Valid flags captured: {valid_flags}/{total_challenges}")
         print(f"  Unvalidated flags captured: {unvalidated_captures}/{total_challenges}")
         print("=" * 80)
-
-        send_experiment_complete_message(
-            channel_id=channel_id,
-            results=results,
-            metadata={
-                "total_challenges": total_challenges,
-                "successful": valid_flags,
-                "unvalidated": unvalidated_captures,
-                "failed": failed_flags,
-                "total_cost": total_cost,
-                "total_time": total_time,
-                "valid_flags": valid_flags,
-                "termination_reason": termination_reason,
-            },
-        )
 
     finally:
         # Cleanup runs on all exit paths: success, KeyboardInterrupt, errors, VPN setup failures

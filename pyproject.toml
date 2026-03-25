@@ -8,7 +8,6 @@ dependencies = [
     "ipykernel>=6.30.1",
     "docker>=7.0.0",
     "python-dotenv>=0.9.9",
-    "discord-py>=2.6.4",
     "pyyaml>=6.0.3",
     "cryptography>=46.0.3",
     "matplotlib>=3.10.7",
@@ -39,5 +38,5 @@ exclude = [
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]
-module = ["docker.*", "discord.*", "yaml"]
+module = ["docker.*", "yaml"]
 ignore_missing_imports = true

@@ -20,12 +20,6 @@ from src.config.workspace import (
 )
 from src.llm_utils.openrouter import call_openrouter_with_history, parse_llm_error
 from src.llm_utils.prompt_builder import build_initial_messages
-from src.utils.discord_utils import (
-    send_auto_relay_message,
-    send_empty_command_stop_message,
-    send_llm_error_message,
-    send_manual_relay_message,
-)
 from src.utils.docker_exec import cleanup_tmux_session, execute_command, get_container_ips
 from src.utils.docker_utils import connect_to_docker
 from src.utils.environment import EnvironmentType, LocalArch, uses_vpn
@@ -59,7 +53,7 @@ def _error_result(error: str, stopping_reason: str) -> dict[str, Any]:
     }
 
 
-# NOTE: This function's 28 parameters were evaluated for dataclass grouping (March 2026).
+# NOTE: This function's 26 parameters were evaluated for dataclass grouping (March 2026).
 # Rejected: one caller, two tests inspect the signature, and the function body still unpacks
 # every value individually — dataclasses would move verbosity, not reduce it.
 # The agent loop below shares ~200 lines with main.py's loop (10 deliberate divergence points
@@ -85,7 +79,6 @@ def run_experiment_agent(
     chap_min_iterations_for_relay: int = 30,
     kali_container_name: str = KALI_CONTAINER_NAME,
     custom_instructions: str = "",
-    channel_id: str | None = None,
     local_arch: LocalArch = "aarch64",
     session_path: str | None = None,
     workspace_dir: str = WORKSPACE_DIR,
@@ -113,7 +106,6 @@ def run_experiment_agent(
         token_limit_increment: Additional tokens allowed per agent number
         chap_min_iterations_for_relay: Minimum iterations before manual relay is allowed
         custom_instructions: Additional instructions for the agent
-        channel_id: Discord channel for webhook notifications (optional)
         local_arch: Local execution architecture used for prompt selection
         workspace_dir: Host workspace directory mounted into the Kali container
 
@@ -274,17 +266,6 @@ def run_experiment_agent(
                 print(f"❌ LLM API error: {e}")
                 llm_error_details = parse_llm_error(e)
 
-                send_llm_error_message(
-                    channel_id=channel_id,
-                    error_msg=str(e),
-                    context={
-                        "challenge": challenge_name,
-                        "iteration": iteration,
-                        "model": model_name,
-                        "experiment_id": experiment_id,
-                    },
-                )
-
                 error_message = f"LLM API error: {e!s}"
                 stopping_reason = "llm_error"
                 break
@@ -366,18 +347,6 @@ def run_experiment_agent(
                     )
                     relay += 1
 
-                    send_auto_relay_message(
-                        channel_id=channel_id,
-                        relay_data={
-                            "agent_number": session["agent_number"] - 1,
-                            "prompt_tokens": prompt_tokens,
-                            "token_threshold": token_limit_for_agent,
-                            "iteration": iteration,
-                            "challenge": challenge_name,
-                            "experiment_id": experiment_id,
-                        },
-                    )
-
                     last_relay_iteration = iteration
                     chap_80_percent_warning_shown = False
                     continue
@@ -457,12 +426,6 @@ def run_experiment_agent(
                 error_message = f"Agent provided empty command {MAX_EMPTY_COMMAND_RETRIES} times"
                 stopping_reason = "empty_command"
 
-                send_empty_command_stop_message(
-                    channel_id=channel_id,
-                    context={"challenge": challenge_name, "iteration": iteration + 1, "experiment_id": experiment_id},
-                    retry_limit=MAX_EMPTY_COMMAND_RETRIES,
-                )
-
                 break
 
             empty_command_count = 0
@@ -529,17 +492,6 @@ def run_experiment_agent(
                     session_path=session_path,
                 )
                 relay += 1
-
-                send_manual_relay_message(
-                    channel_id=channel_id,
-                    relay_data={
-                        "agent_number": session["agent_number"] - 1,
-                        "iteration": iteration,
-                        "challenge": challenge_name,
-                        "experiment_id": experiment_id,
-                        "reason": "Agent command",
-                    },
-                )
 
                 last_relay_iteration = iteration
                 chap_80_percent_warning_shown = False
