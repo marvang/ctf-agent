@@ -63,9 +63,12 @@ CHAP:         Disabled
 Challenges:   vm0-vm6 (7)
 Parallel:     Yes (3 workers)
 Limits:       $5/challenge, 100 iters, 220s timeout
+<optional>:   <up to 3 extra params if relevant to this run>
 
 Results: results/<name>/experiment_<run_id>/
 ```
+
+Optionally show up to 3 extra config lines if they're contextually relevant to this specific run — only when they help catch a misconfiguration.
 
 End with: **"Ready, or change something?"**
 

@@ -8,6 +8,7 @@ allowed-tools:
   - Bash
   - Glob
   - Grep
+  - Agent
 ---
 
 The user wants to analyze CTF experiment results. **Before doing any analysis, you MUST follow the mandatory question flow below.** No exceptions — even if the user says "analyze latest", you still present options and ask the clarifying questions before loading any session data.
@@ -15,6 +16,12 @@ The user wants to analyze CTF experiment results. **Before doing any analysis, y
 ## Mandatory Question Flow
 
 Every invocation of this skill must go through these steps in order. Do NOT skip steps. Do NOT start reading session.json or summary.json files until step 3 is complete.
+
+**Smart skipping:** If the user provides information upfront in their /analyze-results invocation:
+- Run path specified → still show the table in step 1 but pre-select and confirm ("I see you want to analyze X — confirming")
+- Intent specified → skip step 2 entirely, note "Intent: [their words]"
+- "with uncommitted changes" or commit hash → skip step 3, load the context directly
+- Never skip step 1 (always confirm which run) but it can be a one-liner confirmation instead of a full table when the path is explicit
 
 ### Step 1: Present experiment runs
 
@@ -82,20 +89,104 @@ Only NOW can you start reading experiment data and performing analysis. You have
 - What the user wanted to test (from step 2)
 - Code context if available (from step 3)
 
-Proceed with the analysis workflow below, framing every finding in terms of "did the code changes work correctly?"
+Follow the analysis workflow below.
 
 ---
 
-## Analysis Workflow (after step 1-2 are complete)
+## Analysis Workflow
 
-### Read experiment data
+### Step 4a: Read small files (main thread)
 
-1. Read `experiment_summary.json` for full metadata
+1. Read `experiment_summary.json` for full metadata — note the `environment_mode` (local vs private/htb)
 2. Read each challenge's `summary.json` for outcomes
-3. Present the overview table (see format below)
-4. Frame results in context of the code changes being tested
+3. Build the overview table (see format below)
 
-### Overview Format
+These are tiny files, safe for the main context.
+
+### Step 4b: Extract sessions & launch parallel agents
+
+**CRITICAL: Never read session.json directly with the Read tool. All session analysis is done by subagents.**
+
+For each challenge with a session.json:
+
+1. Run the extraction script:
+```bash
+uv run python scripts/extract_session.py results/<run>/<challenge>/session.json --output /tmp/compact_<challenge>.json
+```
+
+2. Check compact file size:
+```bash
+wc -c /tmp/compact_<challenge>.json
+```
+
+Then launch agents **in parallel** (single message, multiple Agent tool calls):
+
+**Agent A — CODE analysis (only if code context was requested in step 3):**
+- Model: haiku
+- Task: Assess whether code changes are reflected correctly in results
+- Reads: git diff or commit context, experiment_summary.json
+- Returns: code assessment paragraph
+
+**Agent B — SESSION analysis (one per challenge):**
+- Model: depends on mode (see model selection below)
+- Task: Trace agent strategy, identify key decisions/pivots, explain success/failure
+- Reads: `/tmp/compact_<challenge>.json` and challenge `summary.json`
+- Prompted with user's intent from step 2 to frame analysis
+- Returns: per-challenge narrative (2-3 paragraphs)
+
+### Model Selection for Session Agents
+
+**VPN mode** (`environment_mode` is `private` or `htb`) — this is the important mode:
+- Always use **sonnet** for session analysis
+- If compact file fits in sonnet context (< 600KB) → one sonnet agent gets everything
+- If compact file too large for one sonnet → **split**: sonnet for beginning+end (most important — initial strategy and final result), haiku agent(s) for middle sections (each haiku gets up to ~300KB)
+- This ensures full session coverage even for 500+ iteration VPN runs
+
+**Local mode** (`environment_mode` is `local`) — 11 challenges, shorter sessions:
+- Always use **haiku** for everything
+- One haiku agent per challenge, all launched in parallel, each returns a summary
+- If a single challenge's compact session exceeds haiku context (~300KB) → use `--max-bytes 300000` flag on the extraction script to truncate middle and keep beginning+end
+- CODE analysis agent also haiku in local mode
+
+### Session Agent Prompt Template
+
+```
+Analyze this CTF agent session transcript. The user ran this experiment to test: [intent from step 2].
+
+Read the compact session file at [path]. It contains the agent's commands, outputs, and reasoning
+in chronological order. The file has two sections:
+- `key_events`: high-signal events (flags found, errors, non-zero exits) — scan these first
+- `compact_events`: full chronological event stream
+
+Also read the challenge summary at [summary.json path] for the outcome.
+
+Your analysis should cover:
+1. Agent strategy — what was the approach? How did it evolve?
+2. Key decisions — where did the agent pivot and why?
+3. Efficiency — how many iterations were productive vs wasted?
+4. If failed: what was the root cause? Where did it go wrong?
+5. If succeeded: was the path optimal or were there unnecessary detours?
+6. Any harness/output issues visible in the transcript (formatting, truncation, timeouts)
+
+Write 2-3 concise paragraphs. Reference specific iteration numbers.
+```
+
+### Step 4c: Synthesize (main thread)
+
+Wait for all agents to complete. Then:
+
+1. Combine: overview table (from 4a) + code assessment (Agent A) + session narratives (Agent B)
+2. Write `analysis.md` in the experiment directory (see format below)
+3. Present a concise summary to the user
+
+**Main thread rules:**
+- NEVER read session.json lines with the Read tool
+- Only use grep on session.json for targeted follow-ups AFTER agents return (e.g., user asks about a specific iteration)
+- All session understanding comes from subagent analysis
+
+---
+
+## Overview Format
 
 ```
 ## Experiment: <name> / <run_id>
@@ -121,16 +212,16 @@ Proceed with the analysis workflow below, framing every finding in terms of "did
 Compare against known baselines if available. Flag any regressions or unexpected failures.>
 ```
 
-### Writing the Analysis File
+## Writing the Analysis File
 
-**Always write a single `analysis.md` in the experiment directory** (next to `experiment_summary.json`). This file should contain everything: the overview table, aggregate stats, verdict, AND per-challenge summaries.
+**Always write a single `analysis.md` in the experiment directory** (next to `experiment_summary.json`). This file should contain everything: the overview table, aggregate stats, verdict, AND per-challenge summaries from the session agents.
 
 File path:
 ```
-results/<name>/experiment_<run_id>/analysis.md
+results/<name>/<run_id>/analysis.md
 ```
 
-The per-challenge summaries go after the overview table. One paragraph per challenge covering: what the agent did, whether it succeeded/failed and why, and any notable observations (e.g. wasted iterations, alternative exploit paths, output issues). Keep it concise — a sentence or two for straightforward successes, a short paragraph for failures or interesting cases.
+The per-challenge summaries come from the session analysis agents. Include them after the overview table. Keep formatting consistent — one section per challenge.
 
 ```
 ## Per-Challenge Summary
@@ -147,35 +238,10 @@ Failed at iteration limit. SMB1 negotiation timed out repeatedly due to amd64 em
 
 Write this file after completing the analysis — the terminal output and the markdown file should contain the same content.
 
-## Deep-Diving into session.json
-
-**CRITICAL: session.json files can be very large (10MB+). Never read them fully.**
-
-Follow this protocol:
-1. First check file size: `wc -c results/.../session.json`
-2. If under 500KB, read with limit (first 200 lines + last 50 lines)
-3. If over 500KB, use targeted reads:
-   - Read first 100 lines for session metadata and initial prompts
-   - Use `grep -c '"event_index"' file` to count total events
-   - Use `grep -n '"tag":' file | tail -20` to find interesting events near the end
-   - Read specific line ranges around failures, relay triggers, or the final commands
-4. **Monitor context usage** — if you're already above 700k tokens, warn the user before reading more
-
-### What to look for in failures:
-- Last few commands before stopping — was the agent stuck in a loop?
-- Error messages in stderr
-- Did it find the vulnerability but fail to exploit?
-- Did it run out of iterations while making progress?
-- Did it go down the wrong path early?
-
-### What to look for in successes:
-- How quickly did it find the vulnerability?
-- Did it use the expected exploit path or find an alternative?
-- How many iterations were wasted on dead ends?
-
 ## Comparing Experiments
 
 When the user asks to compare two experiments:
+- Extract and analyze both experiments using the same subagent pattern
 - Show side-by-side results tables
 - Highlight differences in success rate, cost, time
 - Note any challenges that flipped pass/fail between runs
@@ -187,27 +253,27 @@ User: "analyze results"
 -> Step 1: list runs, ask which one
 -> Step 2: ask what they wanted to test
 -> Step 3: ask for code context
--> Step 4: analyze
+-> Step 4: extract, launch agents, synthesize
 
 User: "analyze latest"
 -> Step 1: list runs (highlight the latest), still ask to confirm
 -> Step 2: ask what they wanted to test
 -> Step 3: ask for code context
--> Step 4: analyze
+-> Step 4: extract, launch agents, synthesize
 
 User: "analyze latest, I was testing parallel mode with uncommitted changes"
 -> Step 1: list runs, highlight latest, confirm
 -> Step 2: SKIP (intent already specified)
 -> Step 3: use git diff (context implied by "uncommitted changes")
--> Step 4: analyze
+-> Step 4: extract, launch agents, synthesize
 
 User: "why did vm7 fail in the smoke test?"
 -> Step 1: list runs from smoke-test, ask which
 -> Step 2: ask what they wanted to test
 -> Step 3: ask for code context
--> Step 4: deep-dive into vm7
+-> Step 4: extract vm7 session only, launch session agent, synthesize
 
 User: "compare default and chap-enabled results"
 -> Step 1: list runs from both sets, ask which runs to compare
 -> Step 2: ask for context source (what changed between the two)
--> Step 3: side-by-side comparison
+-> Step 3: extract all sessions, launch agents for both, side-by-side comparison

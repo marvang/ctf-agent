@@ -105,7 +105,7 @@ Before running experiments, build the challenge images:
 docker compose -f local_challenges/autopenbench_improved/docker-compose.yml build
 ```
 
-Then configure `scripts/run_experiment.py` for the challenge set, model, CHAP settings, and limits you want to use.
+Then configure `scripts/run_experiment.py` for the run you want. It already has flags for the common overrides, so ask your AI assistant which flags to use for a given experiment setup.
 
 ### Run
 
@@ -113,7 +113,7 @@ Then configure `scripts/run_experiment.py` for the challenge set, model, CHAP se
 python scripts/run_experiment.py
 ```
 
-Results are written under `results/experiment_<timestamp>/`.
+Results are written under `results/<experiment_set_name>/<run_id>/`.
 
 ## Benchmark
 
@@ -133,11 +133,15 @@ The local benchmark is an improved version of [AutoPenBench](https://github.com/
 | vm9 | CVE-2017-7494 | 10.0 | SambaCry |
 | vm10 | CVE-2014-0160 | 7.5 | Heartbleed |
 
+## Claude Code Skills
+
+The project includes Claude Code skills (`.claude/skills/`): `/run-experiment` helps you configure and preview experiment parameters,`/live-updates` provides real-time monitoring. `/analyze-results` analyzes runs.
+
 ## Research
 
 This repository contains the research framework and benchmark used for CHAP, a context relay mechanism for long-running penetration-testing agents.
 
-Paper: [Context Handoff for Autonomous Penetration Testing](https://www.ndss-symposium.org/wp-content/uploads/lastx2026-42.pdf)
+Paper: [Context Relay for Long-Running Penetration-Testing Agents](https://www.ndss-symposium.org/wp-content/uploads/lastx2026-42.pdf)
 
 If you use this work in research, cite:
 
