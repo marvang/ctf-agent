@@ -122,6 +122,10 @@ Orchestrates running benchmark challenges sequentially. For each challenge: star
 
 11 CVE-based challenges (vm0-vm10) each in isolated Docker containers with a flag to capture. Flag validation uses string matching for most challenges; vm10 (Heartbleed) uses RSA key cryptographic validation (`src/experiment_utils/key_validator.py`).
 
+### Research Materials (`research-material/`)
+
+Private (gitignored) directory with papers, grant applications, research notes, and Zotero bibliography. See `research-material/INDEX.md` for what to load and when. Load `notes_and_ideas/core_strategic_assessment.md` first for research context.
+
 ## Task Tracking
 
 `todo.md` in the repo root tracks actionable work items. When you complete a task listed there, move it to the Done section and check it off.
