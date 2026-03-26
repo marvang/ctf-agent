@@ -1,9 +1,8 @@
 name: "Round 2: CC Synthesis"
 
 on:
-  workflow_run:
-    workflows: ["Round 1: CC Review"]
-    types: [completed]
+  pull_request:
+    types: [opened, ready_for_review]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -15,7 +14,7 @@ jobs:
   synthesize:
     if: |
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (github.event.pull_request.draft == false && github.event.pull_request.head.repo.fork == false)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,23 +26,18 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
     steps:
-      - name: Resolve PR number first
-        id: pr-early
+      - name: Resolve PR number
+        id: pr
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
           else
-            PR=$(gh pr list --repo "${{ github.repository }}" --state open --json number,headRefName \
-              --jq ".[] | select(.headRefName==\"${{ github.event.workflow_run.head_branch }}\") | .number")
-            echo "number=$PR" >> "$GITHUB_OUTPUT"
+            echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
           fi
-        env:
-          GH_TOKEN: ${{ github.token }}
 
       - name: Signal Round 2 started
-        if: steps.pr-early.outputs.number != ''
         run: |
-          gh api repos/${{ github.repository }}/issues/${{ steps.pr-early.outputs.number }}/reactions -f content="rocket"
+          gh api repos/${{ github.repository }}/issues/${{ steps.pr.outputs.number }}/reactions -f content="rocket"
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -52,98 +46,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Resolve PR number
-        id: pr
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
-          else
-            PR=$(gh pr list --repo "$REPO" --state open --json number,headRefName \
-              --jq ".[] | select(.headRefName==\"${{ github.event.workflow_run.head_branch }}\") | .number")
-            if [ -z "$PR" ]; then
-              echo "::error::Could not find open PR for branch ${{ github.event.workflow_run.head_branch }}"
-              exit 1
-            fi
-            echo "number=$PR" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Wait for all reviewers
+      - name: Wait for reviewers
         if: github.event_name != 'workflow_dispatch'
         run: |
-          echo "Waiting 12 minutes for Copilot and Codex to finish reviewing..."
-          sleep 720
-
-      - name: Check reviewers present
-        id: check
-        run: |
-          PR=${{ steps.pr.outputs.number }}
-
-          # Get first commit SHA on this PR
-          FIRST_COMMIT=$(gh api repos/$REPO/pulls/$PR/commits --jq '.[0].sha')
-          echo "first_commit=$FIRST_COMMIT" >> "$GITHUB_OUTPUT"
-          FIRST_SHORT=${FIRST_COMMIT:0:7}
-
-          # Get all review comments
-          COMMENTS=$(gh api repos/$REPO/pulls/$PR/comments --paginate)
-
-          # Check Copilot
-          COPILOT=$(echo "$COMMENTS" | jq -r "[.[] | select(.user.login == \"Copilot\" or .user.login == \"copilot-pull-request-reviewer[bot]\") | select(.original_commit_id[:7] == \"$FIRST_SHORT\")] | length")
-
-          # Check Codex (comments OR thumbs-up reaction on PR)
-          CODEX=$(echo "$COMMENTS" | jq -r "[.[] | select(.user.login == \"chatgpt-codex-connector[bot]\") | select(.original_commit_id[:7] == \"$FIRST_SHORT\")] | length")
-          CODEX_REACTION=$(gh api repos/$REPO/issues/$PR/reactions --jq "[.[] | select(.user.login == \"chatgpt-codex-connector[bot]\" and .content == \"+1\")] | length" 2>/dev/null || echo "0")
-
-          MISSING=""
-          if [ "$COPILOT" = "0" ]; then
-            MISSING="${MISSING}Copilot "
-          fi
-          if [ "$CODEX" = "0" ] && [ "$CODEX_REACTION" = "0" ]; then
-            MISSING="${MISSING}Codex "
-          fi
-
-          if [ -n "$MISSING" ]; then
-            gh pr comment "$PR" --repo "$REPO" --body "## Synthesis Aborted
-
-          Missing reviews from: **${MISSING}**
-
-          Re-run manually when available:
-          \`\`\`
-          gh workflow run pr-review-synthesis.yml -f pr_number=$PR
-          \`\`\`"
-            echo "::error::Missing reviewers: $MISSING"
-            exit 1
-          fi
-
-          echo "All reviewers present. Copilot: $COPILOT comments, Codex: $CODEX comments (reaction: $CODEX_REACTION)"
+          echo "Waiting 20 minutes for reviewers to finish..."
+          sleep 1200
 
       - name: Collect reviews into reviews.json
         run: |
           PR=${{ steps.pr.outputs.number }}
-          FIRST_COMMIT=${{ steps.check.outputs.first_commit }}
-          FIRST_SHORT=${FIRST_COMMIT:0:7}
 
-          # Fetch all review comments and filter to first commit + unresolved only
+          # Fetch all review comments
           gh api repos/$REPO/pulls/$PR/comments --paginate | python3 -c "
           import json, sys
 
           comments = json.load(sys.stdin)
-          first_short = '$FIRST_SHORT'
 
-          reviewers = {
-              'copilot': ['Copilot', 'copilot-pull-request-reviewer[bot]'],
-              'codex': ['chatgpt-codex-connector[bot]'],
-              'claude': []  # catch-all for other bots
-          }
+          copilot_logins = {'Copilot', 'copilot-pull-request-reviewer[bot]'}
+          codex_logins = {'chatgpt-codex-connector[bot]'}
 
-          result = {'copilot': [], 'codex': [], 'claude': []}
+          result = {'copilot': [], 'codex': [], 'claude': [], 'other': []}
 
           for c in comments:
               login = c.get('user', {}).get('login', '')
-              commit_id = (c.get('original_commit_id') or '')[:7]
-
-              # Only first commit comments
-              if commit_id != first_short:
-                  continue
 
               entry = {
                   'id': c.get('node_id', ''),
@@ -153,12 +78,14 @@ jobs:
                   'url': c.get('html_url', '')
               }
 
-              if login in reviewers['copilot']:
+              if login in copilot_logins:
                   result['copilot'].append(entry)
-              elif login in reviewers['codex']:
+              elif login in codex_logins:
                   result['codex'].append(entry)
-              else:
+              elif login == 'claude[bot]':
                   result['claude'].append(entry)
+              else:
+                  result['other'].append(entry)
 
           with open('reviews.json', 'w') as f:
               json.dump(result, f, indent=2)

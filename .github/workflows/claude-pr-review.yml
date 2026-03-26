@@ -2,23 +2,38 @@ name: "Round 1: CC Review"
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review]
+    types: [opened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+        type: string
 
 jobs:
   claude-review:
     if: |
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.fork == false
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.draft == false && github.event.pull_request.head.repo.fork == false)
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
-      issues: read
+      issues: write
       id-token: write
     steps:
+      - name: Resolve PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Signal Round 1 started
         run: |
-          gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/reactions -f content="heart"
+          gh api repos/${{ github.repository }}/issues/${{ steps.pr.outputs.number }}/reactions -f content="heart"
         env:
           GH_TOKEN: ${{ github.token }}
 
