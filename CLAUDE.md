@@ -4,9 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CHAP (Context Handoff for Autonomous Penetration Testing) is a research framework for agentic pentesting. LLM agents autonomously execute bash commands in Kali Linux Docker containers against vulnerable targets. The key contribution is a relay protocol that compresses conversation history into handoff summaries, allowing fresh agent instances to continue where the previous one left off when context windows fill up.
-
-Published at NDSS Workshop LAST-X 2026.
+This is a research framework for agentic pentesting. LLM agents autonomously execute bash commands in Kali Linux Docker containers or on VPN-connected cyber ranges against vulnerable targets. The key contribution is a relay protocol that compresses conversation history into handoff summaries, allowing fresh agent instances to continue where the previous one left off when context windows fill up.
+CHAP (Context Handoff for Autonomous Penetration Testing) was published at NDSS Workshop LAST-X 2026.
 
 ## Commands
 
