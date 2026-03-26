@@ -22,7 +22,7 @@ from src.llm_utils.openrouter import call_openrouter_with_history, parse_llm_err
 from src.llm_utils.prompt_builder import build_initial_messages
 from src.utils.docker_exec import cleanup_tmux_session, execute_command, get_container_ips
 from src.utils.docker_utils import connect_to_docker
-from src.utils.environment import EnvironmentType, LocalArch, uses_vpn
+from src.utils.environment import EnvironmentType, LocalArch, detect_local_arch, uses_vpn
 from src.utils.output import format_command_result_for_llm, print_initial_prompts
 from src.utils.state_manager import (
     append_session_event,
@@ -33,6 +33,8 @@ from src.utils.state_manager import (
     update_session_tokens,
 )
 from src.utils.workspace import cleanup_workspace
+
+_DEFAULT_LOCAL_ARCH: LocalArch = detect_local_arch()
 
 
 def _error_result(error: str, stopping_reason: str) -> dict[str, Any]:
@@ -79,7 +81,7 @@ def run_experiment_agent(
     chap_min_iterations_for_relay: int = 30,
     kali_container_name: str = KALI_CONTAINER_NAME,
     custom_instructions: str = "",
-    local_arch: LocalArch = "aarch64",
+    local_arch: LocalArch = _DEFAULT_LOCAL_ARCH,
     session_path: str | None = None,
     workspace_dir: str = WORKSPACE_DIR,
     environment_mode: EnvironmentType = "local",

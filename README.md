@@ -95,6 +95,20 @@ python main.py
 
 The `ctf-workspace/` directory is mounted into the Kali container and shared with the host.
 
+### Linux Setup
+
+On Linux, Docker runs natively and challenge targets execute at full speed (no emulation). Two extra steps are needed:
+
+1. **Docker group** — add your user so you can run Docker without sudo:
+   ```bash
+   sudo usermod -aG docker $USER  # then log out and back in
+   ```
+2. **Sudo for cleanup** — Docker creates root-owned files in the shared workspace. Before running experiments, cache your sudo credentials so cleanup can remove them:
+   ```bash
+   sudo -v
+   ```
+   The experiment runner checks for this at startup and exits with a clear message if forgotten.
+
 ## Experiments
 
 Use `scripts/run_experiment.py` for reproducible benchmark runs on the local benchmark.

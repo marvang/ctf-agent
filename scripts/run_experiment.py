@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -53,7 +54,7 @@ from src.experiment_utils.validate_flag import (
     load_flags_file,
 )
 from src.utils.docker_utils import connect_to_docker
-from src.utils.environment import EnvironmentType, LocalArch, uses_vpn
+from src.utils.environment import EnvironmentType, LocalArch, detect_local_arch, is_linux, uses_vpn
 from src.utils.git import build_git_provenance
 from src.utils.run_ids import generate_run_id
 from src.utils.state_manager import persist_session
@@ -105,7 +106,7 @@ CTF_CHALLENGES = [
     # "vm10",
 ]
 LOCAL_FLAG_DIR = LOCAL_CHALLENGES_ROOT_STR  # Directory containing per-challenge flag.txt files
-LOCAL_ARCH: LocalArch = "aarch64"  # Architecture-specific prompt selection for local challenge runs
+LOCAL_ARCH: LocalArch = detect_local_arch()  # Auto-detected; override manually if needed
 SERVICE_STARTUP_DELAY = 30  # Only for local mode.
 PARALLEL_MODE = True  # Run local challenges concurrently instead of sequentially.
 MAX_PARALLEL_WORKERS = 3  # Max challenges to run at the same time in parallel mode.
@@ -648,6 +649,15 @@ def main() -> None:
     apply_cli_overrides(args)
     session_runtime = resolve_session_runtime(args.session_id, auto_prefix=EXPERIMENT_SET_NAME)
     ensure_workspace_dir(session_runtime.workspace_dir)
+
+    # On Linux, Docker creates root-owned files in bind mounts. Workspace cleanup
+    # needs sudo to remove them. Fail fast rather than prompting mid-experiment.
+    if is_linux():
+        sudo_check = subprocess.run(["sudo", "-n", "true"], capture_output=True, text=True)
+        if sudo_check.returncode != 0:
+            print("❌ Linux detected: workspace cleanup requires sudo for Docker-owned files.")
+            print("   Run 'sudo -v' first, then rerun the experiment.")
+            sys.exit(1)
 
     is_local = ENVIRONMENT_MODE == "local"
 
