@@ -1,4 +1,4 @@
-name: Claude PR Review
+name: "Round 1: CC Review"
 
 on:
   pull_request:
@@ -25,6 +25,9 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--model claude-opus-4-6'
+          classify_inline_comments: 'false'
+          show_full_output: true
           prompt: |
             You are reviewing code that produces experimental data for peer-reviewed publication. Think like a skeptical peer reviewer — for each change, reason about what breaks downstream if this is wrong. Not just whether the code is correct, but what silent damage it could cause to results, reproducibility, or experiment validity.
 

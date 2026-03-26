@@ -1,8 +1,8 @@
-name: PR Review Synthesis
+name: "Round 2: CC Synthesis"
 
 on:
   workflow_run:
-    workflows: ["Claude PR Review"]
+    workflows: ["Round 1: CC Review"]
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -152,7 +152,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           use_sticky_comment: true
-          claude_args: '--model claude-opus-4-6-20250723'
+          claude_args: '--model claude-opus-4-6'
           prompt: |
             You are the judge, not another reviewer. Three AI reviewers (Copilot, Codex, Claude) have already submitted their findings in `reviews.json`. Your job is to investigate each finding like a detective — cross-examine the evidence and deliver a ruling.
 

@@ -72,7 +72,7 @@ CHALLENGE_CUSTOM_INSTRUCTIONS = TEST_CHALLENGE_CUSTOM_INSTRUCTIONS if GIVE_HINTS
 MODEL_NAME = "minimax/minimax-m2.7"
 # Model names for quick access: anthropic/claude-sonnet-4.6, anthropic/claude-opus-4.6, openai/gpt-5.4-mini, minimax/minimax-m2.5:free, minimax/minimax-m2.7, cognitivecomputations/dolphin-mistral-24b-venice-edition:free, xiaomi/mimo-v2-pro
 CHAP_ENABLED = False
-MAX_ITERATIONS = 80
+MAX_ITERATIONS = 40
 COMMAND_TIMEOUT = 220
 MAX_COST = 1
 
@@ -85,7 +85,7 @@ CHAP_AUTO_TRIGGER = (
 )
 CHAP_MIN_ITERATIONS_FOR_RELAY = 30  # Minimum iterations before manual relay is allowed
 RESULTS_DIR = "./results"
-EXPERIMENT_SET_NAME = "test-sudo-fix"
+EXPERIMENT_SET_NAME = "test-new-skills"
 EXPERIMENT_PURPOSE: str | None = None  # Optional free-text purpose, saved in metadata (pass via --purpose)
 ENVIRONMENT_MODE: EnvironmentType = "local"  # "local", "private", or "htb"
 
@@ -93,12 +93,12 @@ ENVIRONMENT_MODE: EnvironmentType = "local"  # "local", "private", or "htb"
 
 CTF_CHALLENGES = [
     "vm0",
-    # "vm1",
-    # "vm2",
-    # "vm3",
-    # "vm4",
-    # "vm5",
-    # "vm6",
+    "vm1",
+    "vm2",
+    "vm3",
+    "vm4",
+    "vm5",
+    "vm6",
     # "vm7",
     # "vm8",
     # "vm9",
@@ -107,8 +107,8 @@ CTF_CHALLENGES = [
 LOCAL_FLAG_DIR = LOCAL_CHALLENGES_ROOT_STR  # Directory containing per-challenge flag.txt files
 LOCAL_ARCH: LocalArch = "aarch64"  # Architecture-specific prompt selection for local challenge runs
 SERVICE_STARTUP_DELAY = 30  # Only for local mode.
-PARALLEL_MODE = False  # Run local challenges concurrently instead of sequentially.
-MAX_PARALLEL_WORKERS = 2  # Max challenges to run at the same time in parallel mode.
+PARALLEL_MODE = True  # Run local challenges concurrently instead of sequentially.
+MAX_PARALLEL_WORKERS = 3  # Max challenges to run at the same time in parallel mode.
 PARALLEL_INTERRUPT_DRAIN_TIMEOUT_SECONDS = 5.0  # Wait briefly for interrupted workers to persist results.
 
 # --- VPN/Remote mode ---
