@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from src.config.constants import LOCAL_CHALLENGES_ROOT
-from src.utils.environment import EnvironmentType, LocalArch, VpnEnvironment
+from src.utils.environment import EnvironmentType, LocalArch, VpnEnvironment, detect_local_arch
 
 _LOCAL_CTF_ROOT = LOCAL_CHALLENGES_ROOT
 _CHALLENGE_PATTERN = re.compile(r"^vm(\d+)$")
@@ -109,12 +109,15 @@ def prompt_architecture_selection() -> LocalArch:
     Returns:
         Selected local host architecture for prompt rendering.
     """
+    detected = detect_local_arch()
+    default_choice = "2" if detected == "amd64" else "1"
+
     print("\n🖥️  Architecture:")
     print("Only changes the LLM system prompt.")
     print("1. aarch64 (Mac - emulated targets)")
     print("2. amd64 (Linux - native targets)")
 
-    arch_choice = input("Choose (1/2) [1]: ").strip() or "1"
+    arch_choice = input(f"Choose (1/2) [{default_choice}]: ").strip() or default_choice
     local_arch: LocalArch = "amd64" if arch_choice == "2" else "aarch64"
 
     if local_arch == "amd64":

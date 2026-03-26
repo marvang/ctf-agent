@@ -69,7 +69,13 @@ def execute_command(container: Container, shell_command: str, timeout_seconds: i
 
     thread = threading.Thread(target=run_command, daemon=True)
     thread.start()
-    thread.join(timeout=timeout_seconds)
+
+    # Short polling intervals so Ctrl+C is delivered promptly on Linux.
+    poll_interval = 0.5
+    elapsed = 0.0
+    while thread.is_alive() and elapsed < timeout_seconds:
+        thread.join(timeout=poll_interval)
+        elapsed += poll_interval
 
     if thread.is_alive():
         # Attempt to kill the hung process inside the container
