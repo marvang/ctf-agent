@@ -1,6 +1,6 @@
-# CTF-Agent: AI-Driven Pentesting Framework
+# CTF-Agent
 
-This is a research framework for using AI agents that find and exploit vulnerabilities to solve CTF challenges.
+This repo consists of an AI-driven pentesting agent that solves CTF challenges and a research framework for running scientific experiments to study offensive security agents.
 
 - Autonomous reconnaissance and exploitation
 - Optional CHAP context handoff for long-running sessions
