@@ -16,6 +16,12 @@ jobs:
       issues: read
       id-token: write
     steps:
+      - name: Signal Round 1 started
+        run: |
+          gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/reactions -f content="heart"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -26,18 +32,22 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: '--model claude-opus-4-6'
+          use_sticky_comment: true
           classify_inline_comments: 'false'
           show_full_output: true
           prompt: |
-            You are reviewing code that produces experimental data for peer-reviewed publication. Think like a skeptical peer reviewer — for each change, reason about what breaks downstream if this is wrong. Not just whether the code is correct, but what silent damage it could cause to results, reproducibility, or experiment validity.
+            You are reviewing code that produces experimental data for peer-reviewed publication. Think like a skeptical peer reviewer. Be opinionated — strong views help surface real issues.
+
+            For every change, think deeply: what breaks downstream if this is wrong? Not just whether the code is correct, but what silent damage it could cause to results, reproducibility, or experiment validity. Trace the data flow. Consider second-order effects. If a change looks safe on the surface, ask yourself what happens when it interacts with the rest of the system.
 
             Read CLAUDE.md and .github/copilot-instructions.md for project context.
 
-            Pay special attention to:
-            - Changes that could silently corrupt experiment results or metrics
-            - Entry point drift between main.py and main_experiment_agent.py (shared agent loop logic must stay in sync)
-            - Security at system boundaries (command injection, path traversal, credential exposure)
-            - Breaking changes to result format, Docker lifecycle, or relay protocol
+            Your unique focus (other reviewers cover standard correctness):
+            - Silent corruption — changes that could quietly produce wrong experiment results without any visible error
+            - Downstream consequences — what breaks in the pipeline if this change has a subtle bug?
+            - Entry point drift — if agent loop logic is touched, does it affect both main.py and main_experiment_agent.py?
+            - Reproducibility — would this change make it harder to reproduce or compare experiment runs?
+            - Security at system boundaries — command injection, path traversal, credential exposure, container escape
 
             Do not flag:
             - Style/formatting (ruff handles this via pre-commit hooks)
@@ -45,4 +55,4 @@ jobs:
             - Experiment parameter changes in scripts/run_experiment.py (routine tweaks)
             - Import ordering (ruff enforces this)
 
-            Post inline comments on specific lines. Be concise and actionable.
+            Post your review as a comment. For each finding, include the file:line reference and explain WHY it matters, not just what's wrong. Think hard before posting — quality over quantity.

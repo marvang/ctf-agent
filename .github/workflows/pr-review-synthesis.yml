@@ -27,6 +27,26 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
     steps:
+      - name: Resolve PR number first
+        id: pr-early
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            PR=$(gh pr list --repo "${{ github.repository }}" --state open --json number,headRefName \
+              --jq ".[] | select(.headRefName==\"${{ github.event.workflow_run.head_branch }}\") | .number")
+            echo "number=$PR" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Signal Round 2 started
+        if: steps.pr-early.outputs.number != ''
+        run: |
+          gh api repos/${{ github.repository }}/issues/${{ steps.pr-early.outputs.number }}/reactions -f content="rocket"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -50,8 +70,8 @@ jobs:
       - name: Wait for all reviewers
         if: github.event_name != 'workflow_dispatch'
         run: |
-          echo "Waiting 20 minutes for Copilot and Codex to finish reviewing..."
-          sleep 1200
+          echo "Waiting 12 minutes for Copilot and Codex to finish reviewing..."
+          sleep 720
 
       - name: Check reviewers present
         id: check
