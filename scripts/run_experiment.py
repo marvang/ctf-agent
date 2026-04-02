@@ -652,7 +652,7 @@ def main() -> None:
 
     # On Linux, Docker creates root-owned files in bind mounts. Workspace cleanup
     # needs sudo to remove them. Fail fast rather than prompting mid-experiment.
-    if is_linux():
+    if is_linux() and os.geteuid() != 0:
         try:
             sudo_check = subprocess.run(["sudo", "-n", "true"], capture_output=True, text=True)
         except FileNotFoundError:
