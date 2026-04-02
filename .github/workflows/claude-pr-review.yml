@@ -1,4 +1,4 @@
-name: "Round 1: CC Review"
+name: "Round 1: Marius Claude Review"
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ on:
         type: string
 
 jobs:
-  claude-review:
+  marius-claude-review:
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event.pull_request.draft == false && github.event.pull_request.head.repo.fork == false)
@@ -47,7 +47,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: '--model claude-opus-4-6'
-          use_sticky_comment: true
+          use_sticky_comment: false
           classify_inline_comments: 'false'
           show_full_output: true
           prompt: |
@@ -71,3 +71,29 @@ jobs:
             - Import ordering (ruff enforces this)
 
             Post your review as a comment. For each finding, include the file:line reference and explain WHY it matters, not just what's wrong. Think hard before posting — quality over quantity.
+
+      - name: Post review to PR
+        if: always() && steps.pr.outputs.number
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OUTPUT_FILE="/home/runner/work/_temp/claude-execution-output.json"
+          if [ ! -f "$OUTPUT_FILE" ]; then
+            echo "No Claude output file found, skipping review post"
+            exit 0
+          fi
+
+          BODY=$(python3 -c "
+          import json, sys
+          with open('$OUTPUT_FILE') as f:
+              data = json.load(f)
+          result = data.get('result', '')
+          if not result:
+              sys.exit(1)
+          print(result)
+          " 2>/dev/null) || { echo "No result in output, skipping"; exit 0; }
+
+          # Post as a formal PR review
+          jq -n --arg body "$BODY" '{event: "COMMENT", body: $body}' | \
+            gh api "repos/${{ github.repository }}/pulls/${{ steps.pr.outputs.number }}/reviews" \
+              --input - --silent && echo "Posted review to PR" || echo "Failed to post review"

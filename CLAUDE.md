@@ -124,7 +124,7 @@ Orchestrates running benchmark challenges sequentially. For each challenge: star
 
 ### Research Materials (`research-material/`)
 
-Private (gitignored) directory with papers, grant applications, research notes, and Zotero bibliography. See `research-material/INDEX.md` for what to load and when. Load `notes_and_ideas/core_strategic_assessment.md` first for research context.
+Private (gitignored) directory with papers, grant applications, CV, research notes, and Zotero bibliography. See `research-material/INDEX.md` for what to load and when. Load `notes_and_ideas/core_strategic_assessment.md` first for research context.
 
 ## Task Tracking
 
