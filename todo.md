@@ -32,9 +32,6 @@ Harbor (`uv tool install harbor`) is a framework for evaluating and optimizing a
 
 ## On Hold
 
-### Linux compatibility — PR #4
-All review issues fixed. On hold until Linux deployment is needed.
-
 ### PTY exec model (experimental) — PR #8
 Fixes applied. On hold until core features are complete. Open items: parsing regression, ANSI stripping, session history, prompt contradiction.
 
@@ -58,3 +55,4 @@ Fixes applied. On hold until core features are complete. Open items: parsing reg
 - [x] Add unit tests for `flag_match()`, `get_expected_flag()`, `truncate_output()`, `strip_ansi_escape_codes()`
 - [x] Add parallel local experiment mode — run all Docker challenges concurrently (PR #11)
 - [x] Remove Discord integration, replaced with Claude Code skill `/live-updates`
+- [x] Linux compatibility: auto-detect architecture, polling loop for Ctrl+C, sudo preflight for experiments (PR #4 superseded)

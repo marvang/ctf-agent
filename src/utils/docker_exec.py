@@ -2,6 +2,7 @@
 
 import shlex
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -69,7 +70,13 @@ def execute_command(container: Container, shell_command: str, timeout_seconds: i
 
     thread = threading.Thread(target=run_command, daemon=True)
     thread.start()
-    thread.join(timeout=timeout_seconds)
+
+    # Short polling intervals so Ctrl+C is delivered promptly on Linux.
+    poll_interval = 0.5
+    deadline = time.monotonic() + timeout_seconds
+    while thread.is_alive() and time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        thread.join(timeout=min(poll_interval, max(remaining, 0)))
 
     if thread.is_alive():
         # Attempt to kill the hung process inside the container
