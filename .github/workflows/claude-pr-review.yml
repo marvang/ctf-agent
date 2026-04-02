@@ -94,6 +94,9 @@ jobs:
           " 2>/dev/null) || { echo "No result in output, skipping"; exit 0; }
 
           # Post as a formal PR review
-          jq -n --arg body "$BODY" '{event: "COMMENT", body: $body}' | \
+          jq -n \
+            --arg marker '<!-- reviewer:claude-round1 -->' \
+            --arg body "$BODY" \
+            '{event: "COMMENT", body: ($marker + "\n" + $body)}' | \
             gh api "repos/${{ github.repository }}/pulls/${{ steps.pr.outputs.number }}/reviews" \
               --input - --silent && echo "Posted review to PR" || echo "Failed to post review"

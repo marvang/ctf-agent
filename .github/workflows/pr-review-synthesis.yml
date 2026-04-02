@@ -56,43 +56,103 @@ jobs:
         run: |
           PR=${{ steps.pr.outputs.number }}
 
-          # Fetch all review comments
-          gh api repos/$REPO/pulls/$PR/comments --paginate | python3 -c "
-          import json, sys
+          gh api repos/$REPO/pulls/$PR/comments --paginate > review_comments.json
+          gh api repos/$REPO/pulls/$PR/reviews --paginate > review_bodies.json
+          gh api repos/$REPO/issues/$PR/comments --paginate > issue_comments.json
 
-          comments = json.load(sys.stdin)
+          python3 - <<'PY'
+          import json
+          from collections import Counter
 
-          copilot_logins = {'Copilot', 'copilot-pull-request-reviewer[bot]'}
-          codex_logins = {'chatgpt-codex-connector[bot]'}
+          CLAUDE_ROUND1_MARKER = "<!-- reviewer:claude-round1 -->"
+          CLAUDE_SYNTHESIS_MARKER = "<!-- reviewer:claude-synthesis -->"
 
-          result = {'copilot': [], 'codex': [], 'claude': [], 'other': []}
+          copilot_logins = {"Copilot", "copilot-pull-request-reviewer[bot]"}
+          codex_logins = {"chatgpt-codex-connector[bot]"}
+          claude_logins = {"claude[bot]"}
 
-          for c in comments:
-              login = c.get('user', {}).get('login', '')
+          result = {"copilot": [], "codex": [], "claude": [], "other": []}
+          kind_counts = Counter()
+
+          def strip_markers(body: str) -> str:
+              return (
+                  body.replace(CLAUDE_ROUND1_MARKER, "")
+                  .replace(CLAUDE_SYNTHESIS_MARKER, "")
+                  .strip()
+              )
+
+          def classify_reviewer(login: str, body: str):
+              if CLAUDE_SYNTHESIS_MARKER in body:
+                  return None
+              if CLAUDE_ROUND1_MARKER in body:
+                  return "claude"
+              if login in copilot_logins:
+                  return "copilot"
+              if login in codex_logins:
+                  return "codex"
+              if login in claude_logins:
+                  return "claude"
+              return "other"
+
+          def append_entry(item: dict, kind: str) -> None:
+              body = item.get("body") or ""
+              reviewer = classify_reviewer(item.get("user", {}).get("login", ""), body)
+              if reviewer is None:
+                  return
+
+              clean_body = strip_markers(body)
+              if not clean_body:
+                  return
 
               entry = {
-                  'id': c.get('node_id', ''),
-                  'path': c.get('path', ''),
-                  'line': c.get('line') or c.get('original_line'),
-                  'body': c.get('body', ''),
-                  'url': c.get('html_url', '')
+                  "id": item.get("node_id", ""),
+                  "numeric_id": item.get("id"),
+                  "reviewer": reviewer,
+                  "kind": kind,
+                  "author_login": item.get("user", {}).get("login", ""),
+                  "path": item.get("path", ""),
+                  "line": item.get("line") or item.get("original_line"),
+                  "body": clean_body,
+                  "url": item.get("html_url", ""),
               }
 
-              if login in copilot_logins:
-                  result['copilot'].append(entry)
-              elif login in codex_logins:
-                  result['codex'].append(entry)
-              elif login == 'claude[bot]':
-                  result['claude'].append(entry)
-              else:
-                  result['other'].append(entry)
+              if kind == "review":
+                  entry["state"] = item.get("state", "")
+                  entry["submitted_at"] = item.get("submitted_at", "")
+              elif kind == "review_comment":
+                  entry["pull_request_review_id"] = item.get("pull_request_review_id")
 
-          with open('reviews.json', 'w') as f:
+              result[reviewer].append(entry)
+              kind_counts[kind] += 1
+
+          with open("review_comments.json") as f:
+              for item in json.load(f):
+                  append_entry(item, "review_comment")
+
+          with open("review_bodies.json") as f:
+              for item in json.load(f):
+                  append_entry(item, "review")
+
+          with open("issue_comments.json") as f:
+              for item in json.load(f):
+                  append_entry(item, "issue_comment")
+
+          with open("reviews.json", "w") as f:
               json.dump(result, f, indent=2)
 
           total = sum(len(v) for v in result.values())
-          print(f'Collected {total} comments: Copilot={len(result[\"copilot\"])}, Codex={len(result[\"codex\"])}, Claude={len(result[\"claude\"])}')
-          "
+          print(
+              "Collected "
+              f"{total} review items: "
+              f"Copilot={len(result['copilot'])}, "
+              f"Codex={len(result['codex'])}, "
+              f"Claude={len(result['claude'])}, "
+              f"Other={len(result['other'])} | "
+              f"Kinds: review_comment={kind_counts['review_comment']}, "
+              f"review={kind_counts['review']}, "
+              f"issue_comment={kind_counts['issue_comment']}"
+          )
+          PY
 
       - name: Investigate and synthesize
         uses: anthropics/claude-code-action@v1
@@ -101,13 +161,23 @@ jobs:
           use_sticky_comment: false
           claude_args: '--model claude-opus-4-6'
           prompt: |
-            You are the judge, not another reviewer. Three AI reviewers (Copilot, Codex, Claude) have already submitted their findings in `reviews.json`. Your job is to investigate each finding like a detective — cross-examine the evidence and deliver a ruling.
+            You are the judge, not another reviewer. `reviews.json` contains everything posted by Copilot, Codex, and Claude across the PR review surfaces. Your job is to extract the substantive findings, investigate them like a detective, and deliver a ruling.
 
             Read CLAUDE.md and .github/copilot-instructions.md for project context. This is a research codebase producing experimental data for peer-reviewed publication.
 
+            `reviews.json` is grouped by reviewer. Each entry has:
+            - `kind="review_comment"` for inline PR review comments
+            - `kind="review"` for top-level PR review bodies
+            - `kind="issue_comment"` for PR conversation comments
+
+            Important:
+            - Claude Round 1 may appear as one large `review` entry. Treat that as real review content and extract concrete findings from it.
+            - Copilot/Codex top-level `review` entries are often summaries. Use them as context unless they contain a concrete issue not covered elsewhere.
+            - Do not assume every entry is already a single finding. Split large review bodies into their individual findings before scoring.
+
             ## Investigation Process
 
-            For each finding in `reviews.json`:
+            For each substantive finding you extract from or support with `reviews.json`:
 
             1. **Read the actual code** at the referenced file:line. Do not take the reviewer's word for it.
             2. **Examine through multiple lenses:**
@@ -169,9 +239,9 @@ jobs:
               }
             ]
             ```
-            `comment_ids`: all comment node IDs from `reviews.json` that relate to this finding.
-            `representative_id`: the most detailed comment to keep visible.
-            `duplicate_ids`: comments to resolve as duplicates.
+            `comment_ids`: all source node IDs from `reviews.json` that relate to this finding, regardless of kind.
+            `representative_id`: the best single source item to keep as the canonical reference for this finding.
+            `duplicate_ids`: source IDs that are duplicate evidence for the same finding.
             Include all findings — Fix, Skip, Decision, and Auto-dismissed.
 
       - name: Post synthesis to PR
@@ -196,7 +266,10 @@ jobs:
           " 2>/dev/null) || { echo "No result in output, skipping"; exit 0; }
 
           # Post as a formal PR review
-          jq -n --arg body "$BODY" '{event: "COMMENT", body: $body}' | \
+          jq -n \
+            --arg marker '<!-- reviewer:claude-synthesis -->' \
+            --arg body "$BODY" \
+            '{event: "COMMENT", body: ($marker + "\n" + $body)}' | \
             gh api "repos/${{ github.repository }}/pulls/${{ steps.pr.outputs.number }}/reviews" \
               --input - --silent && echo "Posted synthesis to PR" || echo "Failed to post synthesis"
 
@@ -208,33 +281,43 @@ jobs:
           prompt: |
             Read `verdicts.json` and `reviews.json`. Your job is to annotate the PR review comments based on the investigation verdicts. Do NOT re-investigate — just execute the annotations.
 
+            Build a lookup from `reviews.json` by node ID before taking action.
+            Only entries with `kind == "review_comment"` are annotatable. Entries with `kind == "review"` or `kind == "issue_comment"` are evidence for synthesis only and must never be resolved, reacted to, or replied to.
+
             ## Step 1: Resolve threads that should be hidden
 
             For each finding in `verdicts.json`:
 
-            **Resolve duplicates:** For every ID in `duplicate_ids`, resolve the thread:
+            First derive:
+            - `annotatable_ids`: IDs in `comment_ids` whose entry kind is `review_comment`
+            - `annotatable_duplicate_ids`: IDs in `duplicate_ids` whose entry kind is `review_comment`
+            - `representative_entry`: the entry in `reviews.json` for `representative_id`
+
+            **Resolve duplicates:** For every ID in `annotatable_duplicate_ids`, resolve the thread:
             ```
             gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "NODE_ID"}) { thread { isResolved } } }'
             ```
 
-            **Resolve confident skips:** If verdict=Skip AND confidence>=5, resolve ALL `comment_ids` for that finding.
+            **Resolve confident skips:** If verdict=Skip AND confidence>=5, resolve all `annotatable_ids` for that finding.
 
-            **Resolve auto-dismissed:** If verdict contains "Auto-dismissed" or similar, resolve all `comment_ids`.
+            **Resolve auto-dismissed:** If verdict contains "Auto-dismissed" or similar, resolve all `annotatable_ids`.
 
             Do NOT resolve threads for Fix or Decision verdicts.
 
             ## Step 2: React and score remaining (non-resolved) comments
 
-            For each finding where the `representative_id` was NOT resolved:
+            For each finding where the `representative_entry` is a `review_comment` and was NOT resolved:
 
-            **Add emoji reaction** on the representative comment. Extract the numeric comment ID from the comment URL in `reviews.json` (the number after `/comments/`).
-            - verdict=Fix → `gh api repos/${{ github.repository }}/pulls/comments/{id}/reactions -f content="+1"`
-            - verdict=Decision → `gh api repos/${{ github.repository }}/pulls/comments/{id}/reactions -f content="confused"`
-            - verdict=Skip (confidence<5) → `gh api repos/${{ github.repository }}/pulls/comments/{id}/reactions -f content="-1"`
+            Use `representative_entry.numeric_id` as the REST comment ID.
+
+            **Add emoji reaction** on the representative comment.
+            - verdict=Fix → `gh api repos/${{ github.repository }}/pulls/comments/{numeric_id}/reactions -f content="+1"`
+            - verdict=Decision → `gh api repos/${{ github.repository }}/pulls/comments/{numeric_id}/reactions -f content="confused"`
+            - verdict=Skip (confidence<5) → `gh api repos/${{ github.repository }}/pulls/comments/{numeric_id}/reactions -f content="-1"`
 
             **Reply with scores** on the representative comment:
             ```
-            gh api repos/${{ github.repository }}/pulls/comments/{id}/replies -f body="Impact:{impact} | Conf:{confidence} | Cost:{cost} → **{verdict}**"
+            gh api repos/${{ github.repository }}/pulls/comments/{numeric_id}/replies -f body="Impact:{impact} | Conf:{confidence} | Cost:{cost} → **{verdict}**"
             ```
 
             Keep replies to one line. No explanation — the full reasoning is in the synthesis report.
