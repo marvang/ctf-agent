@@ -653,8 +653,11 @@ def main() -> None:
     # On Linux, Docker creates root-owned files in bind mounts. Workspace cleanup
     # needs sudo to remove them. Fail fast rather than prompting mid-experiment.
     if is_linux():
-        sudo_check = subprocess.run(["sudo", "-n", "true"], capture_output=True, text=True)
-        if sudo_check.returncode != 0:
+        try:
+            sudo_check = subprocess.run(["sudo", "-n", "true"], capture_output=True, text=True)
+        except FileNotFoundError:
+            sudo_check = None
+        if sudo_check is None or sudo_check.returncode != 0:
             print("❌ Linux detected: workspace cleanup requires sudo for Docker-owned files.")
             print("   Run 'sudo -v' first, then rerun the experiment.")
             sys.exit(1)
